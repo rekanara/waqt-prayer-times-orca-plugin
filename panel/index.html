@@ -125,6 +125,18 @@
         padding: 6px 8px; color: #000; background: #fff; border: var(--border); border-radius: 4px;
       }
       .picker input:focus-visible { outline: 3px solid var(--go); outline-offset: 1px; }
+      /* Our own list, not <datalist>: Electron draws that popup outside the frame, unscrollable. */
+      .picker .list {
+        list-style: none; margin: 8px 0 0; padding: 0;
+        max-height: 220px; overflow-y: auto; overscroll-behavior: contain;
+        background: #fff; color: #000; border: var(--border); border-radius: 4px;
+      }
+      .picker .list li { padding: 6px 10px; border-top: 1px solid var(--ink); cursor: pointer; }
+      .picker .list li:first-child { border-top: 0; }
+      .picker .list li .c { color: #3f5a4d; font-size: 12px; }
+      .picker .list li:hover { background: #e3f5ec; }
+      .picker .list li[aria-selected='true'] { background: var(--sun); font-weight: 800; }
+      .picker .list li.empty { cursor: default; color: #3f5a4d; background: none; }
       .picker .row { display: flex; gap: 8px; margin-top: 8px; }
       .picker .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
       [hidden] { display: none !important; }
@@ -137,8 +149,8 @@
     </div>
     <div class="picker" id="picker" hidden>
       <label for="placeInput" id="placeLabel"></label>
-      <input id="placeInput" list="placeOptions" autocomplete="off" spellcheck="false" />
-      <datalist id="placeOptions"></datalist>
+      <input id="placeInput" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="placeList" autocomplete="off" spellcheck="false" />
+      <ul class="list" id="placeList" role="listbox" aria-labelledby="placeLabel"></ul>
       <div class="row">
         <button id="placeAuto"></button>
         <button id="placeCancel"></button>
@@ -174,7 +186,7 @@
           soon: 'kurang dari 1 menit lagi', left: (h, m) => (h ? `${h} jam ` : '') + (m ? `${m} menit ` : '') + 'lagi',
           timeOf: (p) => `Waktu ${p}`, begun: 'Sudah masuk waktu', now: 'Sekarang', method: (m) => `Metode ${m}`,
           change: 'Ganti kota', search: 'Cari kotamu', auto: 'Otomatis (zona waktu)', cancel: 'Batal',
-          pickHint: 'Ketik lalu pilih dari daftar. Kota yang tidak ada: Settings → Plugins → Waqt → Other.', notFound: 'Kota itu tidak ada di daftar. Pilih salah satu saran.',
+          pickHint: 'Ketik untuk mencari, lalu klik kota atau tekan Enter. Kota yang tidak ada: Settings → Plugins → Waqt → Other.', notFound: 'Tidak ada kota yang cocok.',
           error: (e) => `Jadwal tidak bisa dimuat: ${e}. Pastikan plugin aktif.`
         },
         en: {
@@ -182,7 +194,7 @@
           soon: 'less than a minute left', left: (h, m) => (h ? `${h} h ` : '') + (m ? `${m} min ` : '') + 'left',
           timeOf: (p) => `${p} time`, begun: 'The prayer time has begun', now: 'Now', method: (m) => `Method: ${m}`,
           change: 'Change city', search: 'Search for your city', auto: 'Automatic (time zone)', cancel: 'Cancel',
-          pickHint: 'Type, then pick from the list. Not listed? Settings → Plugins → Waqt → Other.', notFound: "That city isn't in the list. Pick one of the suggestions.",
+          pickHint: 'Type to search, then click a city or press Enter. Not listed? Settings → Plugins → Waqt → Other.', notFound: 'No matching city.',
           error: (e) => `Couldn't load prayer times: ${e}. Check that the plugin is enabled.`
         }
       }
@@ -296,33 +308,71 @@
         }
       }
 
-      // City search. Options are "Name, Country"; the worker only accepts ids it listed.
-      let placeIds = null
-      let placeByName = null // bare name -> id, only when the name is unique
+      // City search: a filtered, scrollable list. The worker only accepts ids it listed.
+      let places = null // [{ id, name, country, key }]
+      let shown = []
+      let active = -1
+      function filterPlaces() {
+        const q = $('placeInput').value.trim().toLowerCase()
+        if (!q) return places
+        // Names starting with the query first, shortest first: "lon" puts London before Longyearbyen.
+        const starts = places.filter((p) => p.lname.startsWith(q)).sort((a, b) => a.lname.length - b.lname.length)
+        return starts.concat(places.filter((p) => !p.lname.startsWith(q) && p.key.includes(q)))
+      }
+      function setActive(i) {
+        const items = $('placeList').children
+        if (active >= 0 && items[active]) items[active].setAttribute('aria-selected', 'false')
+        active = i
+        if (i >= 0 && items[i]) {
+          items[i].setAttribute('aria-selected', 'true')
+          items[i].scrollIntoView({ block: 'nearest' })
+          $('placeInput').setAttribute('aria-activedescendant', items[i].id)
+        } else $('placeInput').removeAttribute('aria-activedescendant')
+      }
+      function renderPlaces() {
+        if (!places) return
+        shown = filterPlaces()
+        active = -1
+        $('placeInput').removeAttribute('aria-activedescendant')
+        $('placeList').scrollTop = 0
+        if (!shown.length) {
+          $('placeList').replaceChildren(Object.assign(document.createElement('li'), { className: 'empty', textContent: s().notFound }))
+          return
+        }
+        $('placeList').replaceChildren(...shown.map((p, i) => {
+          const li = document.createElement('li')
+          li.id = `place-${i}`
+          li.setAttribute('role', 'option')
+          li.setAttribute('aria-selected', 'false')
+          li.append(p.name, Object.assign(document.createElement('span'), { className: 'c', textContent: `, ${p.countryName}` }))
+          // mousedown keeps focus in the input; click alone would blur it first.
+          li.addEventListener('mousedown', (e) => e.preventDefault())
+          li.addEventListener('click', () => choosePlace(p.id))
+          return li
+        }))
+        if ($('placeInput').value.trim()) setActive(0)
+      }
       async function openPicker() {
         $('picker').hidden = false
         $('changePlace').setAttribute('aria-expanded', 'true')
         $('placeHint').textContent = s().pickHint
         $('placeInput').value = ''
         $('placeInput').focus()
-        if (placeIds) return
-        try {
-          const places = await plugin.request('waqt.places', {}, { timeoutMs: 10000 })
-          let region = (cc) => cc
-          try { const dn = new Intl.DisplayNames([s().locale], { type: 'region' }); region = (cc) => dn.of(cc) || cc } catch {}
-          placeIds = new Map()
-          placeByName = new Map()
-          $('placeOptions').replaceChildren(...places.map((p) => {
-            const text = `${p.name}, ${region(p.country)}`
-            placeIds.set(text.toLowerCase(), p.id)
-            const bare = p.name.toLowerCase()
-            placeByName.set(bare, placeByName.has(bare) ? null : p.id)
-            const o = document.createElement('option'); o.value = text
-            return o
-          }))
-        } catch (e) {
-          $('placeHint').textContent = s().error(e.message || e)
+        if (!places) {
+          try {
+            const list = await plugin.request('waqt.places', {}, { timeoutMs: 10000 })
+            let region = (cc) => cc
+            try { const dn = new Intl.DisplayNames([s().locale], { type: 'region' }); region = (cc) => dn.of(cc) || cc } catch {}
+            places = list.map((p) => {
+              const countryName = region(p.country)
+              return { ...p, countryName, lname: p.name.toLowerCase(), key: `${p.name}, ${countryName}`.toLowerCase() }
+            })
+          } catch (e) {
+            $('placeHint').textContent = s().error(e.message || e)
+            return
+          }
         }
+        renderPlaces()
       }
       function closePicker() {
         $('picker').hidden = true
@@ -341,12 +391,18 @@
       $('changePlace').addEventListener('click', () => ($('picker').hidden ? openPicker() : closePicker()))
       $('placeCancel').addEventListener('click', closePicker)
       $('placeAuto').addEventListener('click', () => choosePlace('auto'))
-      $('placeInput').addEventListener('change', () => {
-        const v = $('placeInput').value.trim().toLowerCase()
-        if (!v) return
-        const id = placeIds && (placeIds.get(v) || placeByName.get(v))
-        if (id) choosePlace(id)
-        else $('placeHint').textContent = s().notFound
+      $('placeInput').addEventListener('input', renderPlaces)
+      $('placeInput').addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault()
+          if (!shown.length) return
+          const step = e.key === 'ArrowDown' ? 1 : -1
+          setActive(active < 0 ? (step > 0 ? 0 : shown.length - 1) : (active + step + shown.length) % shown.length)
+        } else if (e.key === 'Enter') {
+          e.preventDefault()
+          const p = shown[active] || (shown.length === 1 && shown[0])
+          if (p) choosePlace(p.id)
+        }
       })
       $('picker').addEventListener('keydown', (e) => { if (e.key === 'Escape') closePicker() })
 
