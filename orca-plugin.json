@@ -1,0 +1,39 @@
+{
+  "manifestVersion": 2,
+  "execution": "trusted-worker",
+  "id": "fvm-manager",
+  "name": "FVM Manager",
+  "version": "0.1.0",
+  "description": "Control FVM (Flutter Version Manager) from Orca's sidebar: see the Flutter SDK pinned by the focused workspace, switch it with fvm use, install, remove and set the global SDK.",
+  "license": "MIT",
+  "engines": { "orca": ">=1.4.246" },
+  "pluginApi": 1,
+  "main": "worker/main.mjs",
+  "contributes": {
+    "panels": [
+      { "id": "fvm", "title": "FVM", "icon": "layers", "entry": "panel/index.html" }
+    ],
+    "settings": [
+      {
+        "key": "fvmPath",
+        "title": "FVM executable",
+        "description": "Leave empty to find fvm on PATH. Set a full path if Orca can't find it (for example /opt/homebrew/bin/fvm).",
+        "type": "string",
+        "default": "",
+        "placeholder": "fvm"
+      },
+      {
+        "key": "skipPubGet",
+        "title": "Skip pub get after switching",
+        "description": "Pass --skip-pub-get to fvm use.",
+        "type": "boolean",
+        "default": false
+      }
+    ]
+  },
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "settings:own" },
+    { "kind": "notifications:show" }
+  ]
+}

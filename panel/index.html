@@ -1,0 +1,359 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --fg: var(--orca-foreground, #e6e6e6);
+        --bg: var(--orca-background, transparent);
+        --muted: var(--orca-muted-foreground, #9a9a9a);
+        --line: var(--orca-border, #3a3a3a);
+        --soft: var(--orca-muted, #262626);
+        --accent: var(--orca-primary, #6aa6ff);
+        --accent-fg: var(--orca-primary-foreground, #0b1a33);
+        --danger: var(--orca-destructive, #e5534b);
+        --radius: var(--orca-radius, 6px);
+        --mono: var(--orca-font-mono, ui-monospace, 'SF Mono', Menlo, Consolas, monospace);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 14px 12px 24px;
+        font: 13px/1.45 var(--orca-font-sans, system-ui, sans-serif);
+        color: var(--fg);
+        background: var(--bg);
+      }
+      button {
+        font: inherit;
+        color: var(--fg);
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 3px 8px;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: var(--fg); }
+      button:focus-visible { outline: 2px solid var(--orca-ring, var(--accent)); outline-offset: 1px; }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+      button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+
+      .where { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+      .where b { color: var(--fg); font-weight: 600; }
+
+      /* The pinned SDK is the one thing to see at a glance. */
+      .pin { margin: 10px 0 16px; padding-left: 10px; border-left: 3px solid var(--accent); }
+      .pin.none { border-left-color: var(--line); }
+      .pin .version {
+        font-size: 30px;
+        line-height: 1.1;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+        overflow-wrap: anywhere;
+      }
+      .pin.none .version { font-size: 17px; font-weight: 500; color: var(--muted); }
+      .pin .sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
+
+      h2 {
+        font-size: 12px;
+        font-weight: 600;
+        margin: 18px 0 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      h2 .count { color: var(--muted); font-weight: 400; }
+      h2 .grow { flex: 1; }
+
+      ul { list-style: none; margin: 0; padding: 0; }
+      li {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 0;
+        border-top: 1px solid var(--line);
+      }
+      li:last-child { border-bottom: 1px solid var(--line); }
+      .name { flex: 1; min-width: 0; }
+      .name .v { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+      .name .d { color: var(--muted); font-size: 11.5px; }
+      .tag {
+        font-size: 11px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: var(--soft);
+        color: var(--muted);
+        margin-left: 4px;
+        white-space: nowrap;
+      }
+      .tag.on { background: var(--accent); color: var(--accent-fg); }
+      .actions { display: flex; gap: 4px; flex-shrink: 0; }
+      .actions button { font-size: 12px; padding: 2px 7px; }
+
+      .channels { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+      .channels button { border: 0; border-radius: 0; font-size: 12px; padding: 2px 8px; }
+      .channels button[aria-pressed='true'] { background: var(--soft); font-weight: 600; }
+
+      .note { color: var(--muted); font-size: 12px; padding: 8px 0; }
+      .error {
+        border: 1px solid var(--danger);
+        border-radius: var(--radius);
+        padding: 8px 10px;
+        margin: 10px 0;
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      .error b { color: var(--danger); }
+
+      .job { margin-top: 18px; border: 1px solid var(--line); border-radius: var(--radius); }
+      .job header { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12px; }
+      .job header .grow { flex: 1; overflow-wrap: anywhere; }
+      .job .state.running { color: var(--accent); }
+      .job .state.failed { color: var(--danger); }
+      .job pre {
+        margin: 0;
+        padding: 6px 8px;
+        max-height: 180px;
+        overflow: auto;
+        border-top: 1px solid var(--line);
+        font: 11px/1.45 var(--mono);
+        color: var(--muted);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      [hidden] { display: none !important; }
+      @media (prefers-reduced-motion: no-preference) {
+        .job .state.running::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: currentColor; animation: blink 1s infinite; vertical-align: 1px; }
+        @keyframes blink { 50% { opacity: 0.25; } }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="where" id="where">Looking for the focused workspace…</div>
+
+    <div class="pin none" id="pin">
+      <div class="version" id="pinVersion">…</div>
+      <div class="sub" id="pinSub"></div>
+    </div>
+
+    <div class="error" id="error" hidden></div>
+
+    <section id="installedSection">
+      <h2>Installed SDKs <span class="count" id="installedCount"></span><span class="grow"></span>
+        <button id="refresh" title="Reload from fvm">Refresh</button>
+      </h2>
+      <ul id="installed"></ul>
+    </section>
+
+    <section>
+      <h2>Flutter releases <span class="grow"></span>
+        <span class="channels" role="group" aria-label="Release channel">
+          <button data-channel="stable" aria-pressed="true">Stable</button>
+          <button data-channel="beta" aria-pressed="false">Beta</button>
+        </span>
+      </h2>
+      <ul id="releases"><li class="note">Loading releases…</li></ul>
+    </section>
+
+    <div class="job" id="job" hidden>
+      <header>
+        <span class="state" id="jobState"></span>
+        <span class="grow" id="jobTitle"></span>
+        <button id="jobHide">Hide</button>
+      </header>
+      <pre id="jobLog"></pre>
+    </div>
+
+    <script>
+      'use strict'
+      const plugin = window.orca.plugin
+      const $ = (id) => document.getElementById(id)
+      let status = null
+      let channel = 'stable'
+      let busy = false
+
+      function el(tag, props, ...children) {
+        const node = document.createElement(tag)
+        Object.assign(node, props || {})
+        for (const c of children) if (c != null) node.append(c)
+        return node
+      }
+      function button(label, onClick, cls) {
+        const b = el('button', { textContent: label, className: cls || '' })
+        b.addEventListener('click', onClick)
+        b.disabled = busy
+        return b
+      }
+      function showError(message, hint) {
+        const box = $('error')
+        box.replaceChildren(el('b', { textContent: message }), hint ? el('div', { textContent: hint }) : null)
+        box.hidden = false
+      }
+
+      function canUse() {
+        return status && status.workspace && status.workspace.path && !status.workspace.remote
+      }
+
+      async function run(action, version) {
+        if (action === 'remove' && !confirm(`Remove Flutter ${version} from the FVM cache? Projects pinned to it will need it installed again.`)) return
+        try {
+          await plugin.request('fvm.run', { action, version }, { timeoutMs: 15000 })
+        } catch (e) {
+          showError(e.message || String(e))
+        }
+      }
+
+      function renderHeader() {
+        const ws = status && status.workspace
+        const where = $('where')
+        if (!ws) {
+          where.textContent = 'No workspace is focused. Open a Flutter project in Orca to see its SDK.'
+        } else {
+          where.replaceChildren(el('b', { textContent: ws.name }), ws.branch ? ` on ${ws.branch}` : '')
+        }
+        const pin = $('pin')
+        const p = status && status.project
+        if (p && p.pinned) {
+          pin.className = 'pin'
+          $('pinVersion').textContent = p.pinned
+          const parts = ['Pinned in .fvmrc']
+          if (p.activeFlavor) parts.push(`flavor ${p.activeFlavor}`)
+          const sdk = status.installed.find((v) => v.name === p.pinned)
+          if (sdk && sdk.dart) parts.push(`Dart ${sdk.dart}`)
+          if (!sdk) parts.push('not installed yet')
+          $('pinSub').textContent = parts.join(', ')
+        } else {
+          pin.className = 'pin none'
+          $('pinVersion').textContent = ws && ws.remote
+            ? 'Remote workspace'
+            : p
+              ? 'No Flutter SDK pinned'
+              : ws ? 'Not an FVM project' : 'No project'
+          $('pinSub').textContent = ws && ws.remote
+            ? 'FVM Manager runs fvm on this computer only.'
+            : ws ? 'Choose a version below and press Use to pin it here.' : ''
+        }
+        if (status && status.ok) {
+          const g = status.globalVersion ? `Global SDK ${status.globalVersion}` : 'No global SDK set'
+          $('pinSub').textContent += ($('pinSub').textContent ? '. ' : '') + g + (status.fvmVersion ? `. FVM ${status.fvmVersion}` : '')
+        }
+      }
+
+      function renderInstalled() {
+        const list = $('installed')
+        const items = (status && status.installed) || []
+        $('installedCount').textContent = items.length ? String(items.length) : ''
+        if (!items.length) {
+          list.replaceChildren(el('li', { className: 'note', textContent: 'No SDKs installed yet. Install one from the releases below.' }))
+          return
+        }
+        const pinned = status.project && status.project.pinned
+        list.replaceChildren(...items.map((v) => {
+          const name = el('div', { className: 'name' },
+            el('span', { className: 'v', textContent: v.name }),
+            v.name === pinned ? el('span', { className: 'tag on', textContent: 'this project' }) : null,
+            v.name === status.globalVersion ? el('span', { className: 'tag', textContent: 'global' }) : null,
+            status.unused.includes(v.name) ? el('span', { className: 'tag', textContent: 'unused' }) : null,
+            el('div', { className: 'd', textContent: [v.channel, v.dart && `Dart ${v.dart}`, !v.isSetup && 'not set up'].filter(Boolean).join(', ') })
+          )
+          const actions = el('div', { className: 'actions' })
+          if (v.name !== pinned && canUse()) actions.append(button('Use', () => run('use', v.name), 'primary'))
+          if (v.name !== status.globalVersion) actions.append(button('Global', () => run('global', v.name)))
+          actions.append(button('Remove', () => run('remove', v.name), 'danger'))
+          return el('li', {}, name, actions)
+        }))
+      }
+
+      async function loadReleases() {
+        const list = $('releases')
+        list.replaceChildren(el('li', { className: 'note', textContent: 'Loading releases…' }))
+        try {
+          const releases = await plugin.request('fvm.releases', { channel, limit: 25 }, { timeoutMs: 60000 })
+          const installed = new Set(((status && status.installed) || []).map((v) => v.name))
+          list.replaceChildren(...releases.map((r) => {
+            const date = r.date ? new Date(r.date).toLocaleDateString() : ''
+            const name = el('div', { className: 'name' },
+              el('span', { className: 'v', textContent: r.version }),
+              installed.has(r.version) ? el('span', { className: 'tag', textContent: 'installed' }) : null,
+              el('div', { className: 'd', textContent: [date, r.dart && `Dart ${r.dart}`].filter(Boolean).join(', ') })
+            )
+            const actions = el('div', { className: 'actions' })
+            if (!installed.has(r.version)) actions.append(button('Install', () => run('install', r.version)))
+            if (canUse()) actions.append(button('Use', () => run('use', r.version), 'primary'))
+            return el('li', {}, name, actions)
+          }))
+          if (!releases.length) list.replaceChildren(el('li', { className: 'note', textContent: 'fvm returned no releases for this channel.' }))
+        } catch (e) {
+          list.replaceChildren(el('li', { className: 'note', textContent: `Couldn't load releases: ${e.message || e}` }))
+        }
+      }
+
+      async function refresh() {
+        $('error').hidden = true
+        try {
+          status = await plugin.request('fvm.status', {}, { timeoutMs: 60000 })
+        } catch (e) {
+          status = null
+          showError(`The FVM worker didn't answer: ${e.message || e}`, 'Check that the plugin is enabled, then press Refresh.')
+        }
+        if (status && !status.ok) {
+          showError(status.error, 'Install FVM (https://fvm.app) or set the FVM executable in this plugin’s settings.')
+        }
+        if (status && status.activeJob) showJob(status.activeJob)
+        renderHeader()
+        renderInstalled()
+        await loadReleases()
+      }
+
+      // Job log
+      function setBusy(value) {
+        busy = value
+        document.querySelectorAll('.actions button').forEach((b) => { b.disabled = value })
+      }
+      function showJob(job) {
+        $('job').hidden = false
+        $('jobTitle').textContent = `fvm ${job.action} ${job.version}`
+        const state = $('jobState')
+        state.className = `state ${job.state}`
+        state.textContent = job.state === 'running' ? 'Running' : job.state === 'done' ? 'Done' : 'Failed'
+        $('jobLog').textContent = job.log.join('\n')
+        $('jobLog').scrollTop = $('jobLog').scrollHeight
+        setBusy(job.state === 'running')
+      }
+      plugin.on('fvm.job.started', showJob)
+      plugin.on('fvm.job.output', ({ lines }) => {
+        const log = $('jobLog')
+        log.textContent += '\n' + lines.join('\n')
+        log.scrollTop = log.scrollHeight
+      })
+      plugin.on('fvm.job.finished', (job) => {
+        showJob(job)
+        refresh()
+      })
+      $('jobHide').addEventListener('click', () => { $('job').hidden = true })
+      $('refresh').addEventListener('click', refresh)
+
+      document.querySelectorAll('[data-channel]').forEach((b) => {
+        b.addEventListener('click', () => {
+          channel = b.dataset.channel
+          document.querySelectorAll('[data-channel]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)))
+          loadReleases()
+        })
+      })
+
+      // Follow Orca's focus: a new workspace means a new project to read.
+      let lastWs
+      window.orca.on('workspace.changed', ({ context }) => {
+        const key = context ? `${context.workspaceId || ''}|${context.displayName}|${context.branch}` : ''
+        if (key === lastWs) return
+        lastWs = key
+        started = true
+        refresh()
+      })
+      // Orca sends the current context as soon as we subscribe; refresh anyway if it doesn't.
+      let started = false
+      setTimeout(() => { if (!started) { started = true; refresh() } }, 1500)
+    </script>
+  </body>
+</html>
