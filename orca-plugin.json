@@ -3,7 +3,7 @@
   "execution": "trusted-worker",
   "id": "waqt",
   "name": "Waqt: Prayer Times",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Islamic prayer times in Orca's status bar: the next prayer, a countdown and desktop reminders. Calculated offline (Kemenag, JAKIM, MUIS, MWL, ISNA, Umm al-Qura and more), no internet needed. Bahasa Indonesia and English.",
   "icon": "assets/icon.png",
   "cover": {
