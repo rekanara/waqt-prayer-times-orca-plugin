@@ -7,6 +7,8 @@ import { ZONES } from './zones.mjs'
 const TICK_MS = 20_000
 const WINDOW_MIN = 15 // how long "Waktu X" stays in the status bar after a prayer begins
 const LATE_GRACE_MS = 3 * 60_000 // a missed notification older than this is skipped, not sent late
+const REPORT_AFTER_MS = 20 * 60_000 // the after-prayer agent report comes this long after a prayer begins
+const WARN_BEFORE_MS = 10 * 60_000 // the status bar turns urgent this close to a prayer
 
 const T = {
   id: {
@@ -25,6 +27,13 @@ const T = {
     sunriseBody: (t, place) => `Matahari terbit pukul ${t} di ${place}.`,
     fridayTitle: (n) => `Jumatan ${n} menit lagi`,
     fridayBody: (t, place) => `Jumat pukul ${t} di ${place}. Saatnya bersiap ke masjid.`,
+    agentsWaiting: (n, names) => `${n} workspace menunggu izinmu: ${names}.`,
+    agentsWorking: (n) => `Agent masih bekerja di ${n} workspace.`,
+    more: (n) => `+${n} lagi`,
+    reportTitle: (p) => `Selama ${p}`,
+    reportDone: (n, names) => `${n} workspace selesai: ${names}.`,
+    reportWorking: (n) => `${n} workspace masih bekerja.`,
+    statusWaiting: (n) => `${n} agent menunggu`,
     heading: (place, date) => `Jadwal sholat ${place}, ${date}`,
     next: (p, t, x) => `Berikutnya: ${p} ${t} (${x} lagi)`,
     locale: 'id-ID'
@@ -45,6 +54,13 @@ const T = {
     sunriseBody: (t, place) => `Sunrise is at ${t} in ${place}.`,
     fridayTitle: (n) => `Jumu'ah in ${n} minutes`,
     fridayBody: (t, place) => `Jumu'ah at ${t} in ${place}. Time to get ready for the mosque.`,
+    agentsWaiting: (n, names) => `${n} ${n === 1 ? 'workspace is' : 'workspaces are'} waiting for your approval: ${names}.`,
+    agentsWorking: (n) => `Agents are still working in ${n} ${n === 1 ? 'workspace' : 'workspaces'}.`,
+    more: (n) => `${n} more`,
+    reportTitle: (p) => `While you prayed ${p}`,
+    reportDone: (n, names) => `Finished in ${n} ${n === 1 ? 'workspace' : 'workspaces'}: ${names}.`,
+    reportWorking: (n) => `Still working in ${n} ${n === 1 ? 'workspace' : 'workspaces'}.`,
+    statusWaiting: (n) => `${n} agent${n === 1 ? '' : 's'} waiting`,
     heading: (place, date) => `Prayer times for ${place}, ${date}`,
     next: (p, t, x) => `Next: ${p} at ${t} (${x} left)`,
     locale: 'en-GB'
@@ -67,6 +83,53 @@ const label = (t, key, date) => (key === 'dhuhr' && date.getDay() === 5 ? t.frid
 function untilText(t, ms) {
   const min = Math.max(0, Math.ceil(ms / 60_000))
   return min < 60 ? t.min(min) : t.hr(Math.floor(min / 60), min % 60)
+}
+
+const stateOf = (w) => w.status?.state
+const BUSY = new Set(['working', 'permission'])
+
+// "a, b, c, +2 lagi"
+function nameList(L, names) {
+  const shown = names.slice(0, 3)
+  if (names.length > 3) shown.push(L.more(names.length - 3))
+  return shown.join(', ')
+}
+
+/** Workspaces whose agents need a look, waiting for approval first: [{ id, name, state }]. */
+export function activeAgents(workspaces) {
+  const pick = (state) => workspaces.filter((w) => stateOf(w) === state).map((w) => ({ id: w.id, name: w.name, state }))
+  return [...pick('permission'), ...pick('working')]
+}
+
+/**
+ * One line about the user's Orca agents for a reminder, or '' when nothing is running.
+ * Waiting for approval comes first: that is what to answer before stepping away to pray.
+ * @param {{ id?: string, name: string, status?: { state: string } }[]} workspaces  from workspace.list
+ */
+export function agentSummary(L, workspaces) {
+  const waiting = workspaces.filter((w) => stateOf(w) === 'permission').map((w) => w.name)
+  const working = workspaces.filter((w) => stateOf(w) === 'working')
+  return [
+    waiting.length ? L.agentsWaiting(waiting.length, nameList(L, waiting)) : '',
+    working.length ? L.agentsWorking(working.length) : ''
+  ].filter(Boolean).join(' ')
+}
+
+/**
+ * What happened to the user's agents while they prayed, or null when nothing ran.
+ * @param {Set<string>} everWorking  ids of workspaces seen working since the prayer began
+ */
+export function prayerReport(L, prayerLabel, everWorking, workspaces) {
+  const finished = workspaces.filter((w) => everWorking.has(w.id) && !BUSY.has(stateOf(w))).map((w) => w.name)
+  const waiting = workspaces.filter((w) => stateOf(w) === 'permission').map((w) => w.name)
+  const working = workspaces.filter((w) => stateOf(w) === 'working')
+  if (!finished.length && !waiting.length && !working.length) return null
+  const body = [
+    finished.length ? L.reportDone(finished.length, nameList(L, finished)) : '',
+    waiting.length ? L.agentsWaiting(waiting.length, nameList(L, waiting)) : '',
+    working.length ? L.reportWorking(working.length) : ''
+  ].filter(Boolean).join(' ')
+  return { title: L.reportTitle(prayerLabel), body }
 }
 
 /**
@@ -102,6 +165,8 @@ export default function activate(orca) {
   const fired = new Set()
   let timer = null
   let lastStatus = ''
+  let session = null // the prayer being watched for the after-prayer report
+  let agentsLogged = false
 
   async function readConfig() {
     let s = {}
@@ -128,7 +193,8 @@ export default function activate(orca) {
         isha: s.notifyIsha !== false
       },
       remindSunrise: Number.isInteger(s.remindSunrise) ? s.remindSunrise : 15,
-      fridayRemind: Number.isInteger(s.fridayRemind) ? s.fridayRemind : 30
+      fridayRemind: Number.isInteger(s.fridayRemind) ? s.fridayRemind : 30,
+      agentSummary: s.agentSummary !== false
     }
   }
 
@@ -174,18 +240,50 @@ export default function activate(orca) {
     }
   }
 
-  async function checkNotifications(cfg, sched, now) {
+  async function checkNotifications(cfg, sched, now, workspaces) {
     const events = notificationEvents(cfg, [[sched._today, new Date(now)], [sched._tomorrow, new Date(now + 86_400_000)]])
     for (const ev of events) {
       const late = now - ev.at
       if (late < 0 || fired.has(ev.id)) continue
       fired.add(ev.id)
-      if (late <= LATE_GRACE_MS) await notify(ev.title, ev.body)
+      if (late > LATE_GRACE_MS) continue
+      // Reminders before a prayer mention the user's agents, so they can unblock them first.
+      const before = ev.id.endsWith('-pre') && !ev.id.endsWith('sunrise-pre')
+      await notify(ev.title, before && workspaces ? `${ev.body} ${agentSummary(T[cfg.lang], workspaces)}`.trim() : ev.body)
     }
     if (fired.size > 200) for (const id of [...fired].slice(0, 100)) fired.delete(id)
   }
 
-  async function updateStatusBar(sched, now) {
+  // The user's workspaces with agent status, or null when agent features are off or Orca says no.
+  async function readWorkspaces(cfg) {
+    if (!cfg.agentSummary) return null
+    try {
+      return (await orca.host.call('workspace.list', { includeStatus: true })).workspaces ?? []
+    } catch (e) {
+      if (!agentsLogged) orca.log(`agent status unavailable: ${e.message}`) // older Orca or access not granted
+      agentsLogged = true
+      return null
+    }
+  }
+
+  // Watch each enabled prayer from when it begins; REPORT_AFTER_MS later, say what the agents did.
+  async function trackPrayer(cfg, sched, now, workspaces) {
+    const cur = sched.current
+    if (cur && cfg.prayers[cur.key] && now - cur.at < REPORT_AFTER_MS) {
+      const id = `${cur.key}-${cur.at}`
+      if (session?.id !== id) session = { id, label: cur.label, reportAt: cur.at + REPORT_AFTER_MS, everWorking: new Set() }
+    }
+    if (!session) return
+    for (const w of workspaces) if (stateOf(w) === 'working') session.everWorking.add(w.id)
+    if (now < session.reportAt) return
+    const done = session
+    session = null
+    if (now - done.reportAt > LATE_GRACE_MS) return // the computer slept through it
+    const report = prayerReport(T[cfg.lang], done.label, done.everWorking, workspaces)
+    if (report) await notify(report.title, report.body)
+  }
+
+  async function updateStatusBar(sched, now, workspaces) {
     const t = T[sched.lang]
     let text, tone
     const cur = sched.current
@@ -195,12 +293,19 @@ export default function activate(orca) {
     } else if (sched.next) {
       const left = sched.next.at - now
       text = left <= 60 * 60_000 ? `${sched.next.label} ${sched.next.time}, ${t.left(untilText(t, left))}` : `${sched.next.label} ${sched.next.time}`
-      tone = left <= 10 * 60_000 ? 'warning' : 'neutral'
+      tone = left <= WARN_BEFORE_MS ? 'warning' : 'neutral'
+      // A prayer is close and an agent is stuck on the user: say so, loudly.
+      const waiting = workspaces ? workspaces.filter((w) => stateOf(w) === 'permission').length : 0
+      if (left <= WARN_BEFORE_MS && waiting) {
+        text += `, ${t.statusWaiting(waiting)}`
+        tone = 'danger'
+      }
     } else {
       text = 'Waqt'
       tone = 'neutral'
     }
-    const tooltip = `${sched.place}: ` + sched.today.filter((r) => PRAYERS.includes(r.key)).map((r) => `${r.label} ${r.time}`).join(', ')
+    const agents = workspaces ? agentSummary(t, workspaces) : ''
+    const tooltip = `${sched.place}: ` + sched.today.filter((r) => PRAYERS.includes(r.key)).map((r) => `${r.label} ${r.time}`).join(', ') + (agents ? `\n${agents}` : '')
     const key = `${text}|${tone}|${tooltip}`
     if (key === lastStatus) return
     lastStatus = key
@@ -211,22 +316,39 @@ export default function activate(orca) {
     }
   }
 
-  const publicView = ({ _today, _tomorrow, ...rest }) => rest
+  const publicView = ({ _today, _tomorrow, ...rest }, workspaces) => ({ ...rest, agents: workspaces ? activeAgents(workspaces) : null })
 
   async function tick() {
     try {
       const now = new Date()
       const cfg = await readConfig()
       const sched = buildSchedule(cfg, now)
-      await updateStatusBar(sched, now.getTime())
-      await checkNotifications(cfg, sched, now.getTime())
-      orca.panels.post('waqt.tick', publicView(sched))
+      const workspaces = await readWorkspaces(cfg)
+      await updateStatusBar(sched, now.getTime(), workspaces)
+      await checkNotifications(cfg, sched, now.getTime(), workspaces)
+      if (workspaces) await trackPrayer(cfg, sched, now.getTime(), workspaces)
+      orca.panels.post('waqt.tick', publicView(sched, workspaces))
     } catch (e) {
       orca.log(`tick failed: ${e.stack || e.message}`)
     }
   }
 
-  orca.panels.handle('waqt.schedule', async () => publicView(buildSchedule(await readConfig())))
+  async function currentView() {
+    const cfg = await readConfig()
+    return publicView(buildSchedule(cfg), await readWorkspaces(cfg))
+  }
+
+  orca.panels.handle('waqt.schedule', currentView)
+
+  // The panel's agent list: open a workspace, but only one Orca actually lists.
+  orca.panels.handle('waqt.openWorkspace', async ({ id } = {}) => {
+    const workspaces = await readWorkspaces(await readConfig())
+    if (typeof id !== 'string' || !workspaces?.some((w) => w.id === id)) {
+      throw Object.assign(new Error('Unknown workspace'), { code: 'invalid_params' })
+    }
+    await orca.host.call('workspace.open', { workspaceId: id })
+    return { opened: true }
+  })
 
   // The panel's city search. Only ids from placeList() are accepted.
   orca.panels.handle('waqt.places', async () => placeList())
@@ -241,7 +363,7 @@ export default function activate(orca) {
       throw Object.assign(new Error(`Unknown place "${id}"`), { code: 'invalid_params' })
     }
     await tick() // status bar and open panels follow right away
-    return publicView(buildSchedule(await readConfig()))
+    return currentView()
   })
 
   orca.commands.register('waqt.today', async () => {

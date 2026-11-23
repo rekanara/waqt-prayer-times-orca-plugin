@@ -4,12 +4,18 @@ Islamic prayer times in [Orca](https://orca.dev)'s status bar. Bahasa Indonesia 
 
 - **Status bar**: the next prayer and its time, a countdown in the last hour, and "Asr time" for 15 minutes after a prayer begins. Click it for today's full timetable.
 - **Reminders**: a desktop notification a few minutes before each prayer (10 by default) and when it begins, with each prayer switchable on or off. A reminder before sunrise, when Fajr ends (15 minutes by default). On Fridays an earlier Jumu'ah reminder (30 minutes by default) instead of the regular Dhuhr one.
+- **Your agents** (Orca workspaces with agents running):
+  - Reminders before a prayer say which workspaces are waiting for your approval and how many are still working, so you can answer them before you step away.
+  - When a prayer is 10 minutes away and an agent is waiting, the status bar turns red: "Asr 15:06, 8 min left, 1 agent waiting".
+  - The panel lists those workspaces; click one to open it.
+  - 20 minutes after a prayer begins, a note says what happened meanwhile: "While you prayed Asr: Finished in 1 workspace: api. 1 workspace is waiting for your approval: web."
+  - Nothing is added when no agent is running. Turn it all off with *Show my agents*.
 - **Panel**: today's and tomorrow's times, a line from Fajr to Isha showing where the day is, and the Hijri date.
 - **Offline**: calculated on your computer, no internet. Methods: Kemenag (Indonesia), JAKIM, MUIS, Muslim World League, Egyptian General Authority, ISNA and Umm al-Qura. With Kemenag, Jakarta's times match the official 2026 timetable to within a minute.
 
 ## Settings
 
-Settings → Plugins → Waqt: language, city (automatic, 31 built in, picked in the panel, or your own coordinates), calculation method (automatic by country, or one of seven), Asr school, safety margin (ihtiyat), reminder minutes, a notification when a prayer begins, which prayers to notify, the sunrise and Jumu'ah reminders, and an imsak reminder for Ramadan.
+Settings → Plugins → Waqt: language, city (automatic, 31 built in, picked in the panel, or your own coordinates), calculation method (automatic by country, or one of seven), Asr school, safety margin (ihtiyat), reminder minutes, a notification when a prayer begins, which prayers to notify, the sunrise and Jumu'ah reminders, showing your agents, and an imsak reminder for Ramadan.
 
 **Location, anywhere, offline.** City starts on Automatic: Waqt reads your computer's time zone and uses that zone's city from the tz database (418 zones, every country), or a built-in Indonesian city for WIB, WITA and WIT. The name shows "(auto)". The calculation method also starts on Automatic and follows your country: Kemenag in Indonesia, JAKIM in Malaysia, MUIS in Singapore, Umm al-Qura in Saudi Arabia, the Egyptian authority in Egypt, ISNA in the US and Canada, and the Muslim World League elsewhere.
 
@@ -20,6 +26,10 @@ Times are shown in your computer's time zone. Where the sun never sinks far enou
 ---
 
 **Bahasa Indonesia:** jadwal sholat di status bar Orca, dengan hitung mundur, notifikasi pengingat, dan panel jadwal hari ini dan besok. Dihitung offline. Lokasi dan metode otomatis dari zona waktu komputer (di Indonesia: kota WIB/WITA/WIT dan kriteria Kemenag); ganti kota lewat tombol **Ganti kota** di panel. Pilih bahasa di Settings → Plugins → Waqt.
+
+## Access
+
+Waqt asks Orca for: your workspaces and their agent status (to mention, list and open workspaces with working or waiting agents; nothing leaves your computer), its own settings, and desktop notifications.
 
 ## Development
 

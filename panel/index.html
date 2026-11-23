@@ -139,6 +139,27 @@
       .picker .list li.empty { cursor: default; color: #3f5a4d; background: none; }
       .picker .row { display: flex; gap: 8px; margin-top: 8px; }
       .picker .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+      /* Agents that need a look before stepping away: a button per workspace. */
+      .agents { margin-top: 18px; }
+      .agents h2 { font: 14px/1.2 var(--display); margin: 0 0 8px; }
+      .agents ul {
+        list-style: none; margin: 0; padding: 0; background: var(--surface);
+        border: var(--border); border-radius: 6px; box-shadow: var(--shadow); overflow: hidden;
+      }
+      .agents li + li { border-top: var(--border); }
+      .agents button {
+        display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+        font: 700 13px/1.3 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color: var(--text); background: transparent; border: 0; padding: 8px 12px; cursor: pointer;
+      }
+      .agents button:hover { background: color-mix(in srgb, var(--go) 18%, transparent); }
+      .agents button:focus-visible { outline: 3px solid var(--go); outline-offset: -3px; }
+      .agents .n { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      .agents .b {
+        font-size: 11px; font-weight: 800; color: #000; white-space: nowrap;
+        padding: 0 6px; border: var(--border); border-radius: 3px; background: var(--go);
+      }
+      .agents .b.permission { background: #ff5a5f; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -163,6 +184,10 @@
       <div class="left" id="nextLeft"></div>
     </div>
     <div class="track" id="track" hidden></div>
+    <section class="agents" id="agents" hidden>
+      <h2 id="agentsTitle"></h2>
+      <ul id="agentList"></ul>
+    </section>
 
     <div class="tabs" role="group" id="dayTabs">
       <button data-day="today" aria-pressed="true"></button>
@@ -187,6 +212,7 @@
           timeOf: (p) => `Waktu ${p}`, begun: 'Sudah masuk waktu', now: 'Sekarang', method: (m) => `Metode ${m}`,
           change: 'Ganti kota', search: 'Cari kotamu', auto: 'Otomatis (zona waktu)', cancel: 'Batal',
           pickHint: 'Ketik untuk mencari, lalu klik kota atau tekan Enter. Kota yang tidak ada: Settings → Plugins → Waqt → Other.', notFound: 'Tidak ada kota yang cocok.',
+          agentsTitle: 'Agent kamu', permission: 'menunggu izin', working: 'bekerja', open: (n) => `Buka ${n}`, openError: (e) => `Workspace tidak bisa dibuka: ${e}`,
           error: (e) => `Jadwal tidak bisa dimuat: ${e}. Pastikan plugin aktif.`
         },
         en: {
@@ -195,6 +221,7 @@
           timeOf: (p) => `${p} time`, begun: 'The prayer time has begun', now: 'Now', method: (m) => `Method: ${m}`,
           change: 'Change city', search: 'Search for your city', auto: 'Automatic (time zone)', cancel: 'Cancel',
           pickHint: 'Type to search, then click a city or press Enter. Not listed? Settings → Plugins → Waqt → Other.', notFound: 'No matching city.',
+          agentsTitle: 'Your agents', permission: 'needs approval', working: 'working', open: (n) => `Open ${n}`, openError: (e) => `Couldn't open the workspace: ${e}`,
           error: (e) => `Couldn't load prayer times: ${e}. Check that the plugin is enabled.`
         }
       }
@@ -275,6 +302,25 @@
           const me = document.createElement('div'); me.className = 'me'; me.style.left = pos(now); me.title = s().now
           track.append(me)
         }
+
+        // Agents that need a look (only when the worker could read them and some are busy).
+        const agents = data.agents || []
+        $('agents').hidden = !agents.length
+        $('agentsTitle').textContent = s().agentsTitle
+        $('agentList').replaceChildren(...agents.map((a) => {
+          const b = document.createElement('button')
+          b.setAttribute('aria-label', `${s().open(a.name)}, ${s()[a.state]}`)
+          b.append(
+            Object.assign(document.createElement('span'), { className: 'n', textContent: a.name }),
+            Object.assign(document.createElement('span'), { className: `b ${a.state}`, textContent: s()[a.state] })
+          )
+          b.addEventListener('click', () => plugin.request('waqt.openWorkspace', { id: a.id }, { timeoutMs: 10000 }).catch((e) => {
+            $('error').textContent = s().openError(e.message || e)
+            $('error').hidden = false
+          }))
+          const li = document.createElement('li'); li.append(b)
+          return li
+        }))
 
         // Table.
         const rows = day === 'today' ? data.today : data.tomorrow

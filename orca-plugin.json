@@ -272,6 +272,13 @@
         "default": 30
       },
       {
+        "key": "agentSummary",
+        "title": "Show my agents",
+        "description": "Uses your Orca workspaces' agent status: reminders before a prayer mention agents still working or waiting for your approval, the status bar turns red when a prayer is close and an agent is waiting, the panel lists them so you can open one, and 20 minutes after a prayer begins a note says what your agents did meanwhile.",
+        "type": "boolean",
+        "default": true
+      },
+      {
         "key": "showImsak",
         "title": "Remind at imsak",
         "description": "Useful in Ramadan.",
@@ -281,6 +288,9 @@
     ]
   },
   "capabilities": [
+    {
+      "kind": "workspace:read"
+    },
     {
       "kind": "settings:own"
     },

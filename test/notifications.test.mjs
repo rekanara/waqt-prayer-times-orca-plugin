@@ -1,7 +1,7 @@
 // node --test test/
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { notificationEvents } from '../worker/main.mjs'
+import { notificationEvents, agentSummary, prayerReport, activeAgents } from '../worker/main.mjs'
 import { prayerTimes } from '../worker/praytimes.mjs'
 
 const cfg = (over = {}) => ({
@@ -51,4 +51,36 @@ test('A prayer turned off sends neither its reminder nor its begin notification'
   const got = ids(cfg({ prayers: { fajr: true, dhuhr: true, asr: false, maghrib: true, isha: false } }), '2026-11-23')
   assert.ok(!got.some((id) => id.startsWith('asr') || id.startsWith('isha')))
   assert.ok(got.includes('maghrib-at') && got.includes('maghrib-pre'))
+})
+
+const ID = { agentsWaiting: (n, names) => `${n} menunggu: ${names}.`, agentsWorking: (n) => `${n} bekerja.`, more: (n) => `+${n} lagi` }
+const ws = (name, state) => ({ name, status: state && { state } })
+
+test('agent summary: waiting first, then working; nothing when idle', () => {
+  assert.equal(agentSummary(ID, []), '')
+  assert.equal(agentSummary(ID, [ws('a', 'done'), ws('b', 'inactive'), ws('c')]), '')
+  assert.equal(agentSummary(ID, [ws('api', 'working'), ws('web', 'permission'), ws('cli', 'working')]), '1 menunggu: web. 2 bekerja.')
+  assert.equal(
+    agentSummary(ID, ['a', 'b', 'c', 'd', 'e'].map((n) => ws(n, 'permission'))),
+    '5 menunggu: a, b, c, +2 lagi.'
+  )
+})
+
+const RL = { ...ID, reportTitle: (p) => `Selama ${p}`, reportDone: (n, names) => `${n} selesai: ${names}.`, reportWorking: (n) => `${n} masih bekerja.` }
+const w = (id, state) => ({ id, name: id, status: state && { state } })
+
+test('after-prayer report: finished, waiting and still working; null when nothing ran', () => {
+  const seen = new Set(['api', 'web', 'cli'])
+  const r = prayerReport(RL, 'Ashar', seen, [w('api', 'done'), w('web', 'permission'), w('cli', 'working'), w('docs', 'inactive')])
+  assert.deepEqual(r, { title: 'Selama Ashar', body: '1 selesai: api. 1 menunggu: web. 1 masih bekerja.' })
+  assert.equal(prayerReport(RL, 'Ashar', new Set(), [w('docs', 'done'), w('x')]), null)
+  // An agent idle all along is not reported as finished.
+  assert.equal(prayerReport(RL, 'Ashar', new Set(['api']), [w('api', 'done'), w('old', 'done')]).body, '1 selesai: api.')
+})
+
+test('active agents: waiting first, idle ones left out', () => {
+  assert.deepEqual(activeAgents([w('a', 'working'), w('b', 'done'), w('c', 'permission')]), [
+    { id: 'c', name: 'c', state: 'permission' },
+    { id: 'a', name: 'a', state: 'working' }
+  ])
 })
