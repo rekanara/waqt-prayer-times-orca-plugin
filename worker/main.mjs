@@ -1,289 +1,260 @@
-// FVM Manager worker. Runs in Orca's separate Node process (trusted-worker).
-// The panel never builds a command line: it asks for an action by name and
-// this worker turns it into a fixed fvm argument list, run without a shell.
-import { spawn } from 'node:child_process'
-import { realpath } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import path from 'node:path'
+// Waqt worker. Orca keeps it running while the plugin is enabled because the plugin
+// has a status bar item, so it can tick on its own. Everything is computed offline.
+import { prayerTimes, METHODS } from './praytimes.mjs'
+import { CITIES } from './cities.mjs'
 
-const IS_WIN = process.platform === 'win32'
-const VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9._@+/-]{0,99}$/
-const CHANNELS = new Set(['stable', 'beta', 'dev'])
-const ACTIONS = new Set(['use', 'install', 'remove', 'global'])
-const MAX_LOG_LINES = 300
+const TICK_MS = 20_000
+const WINDOW_MIN = 15 // how long "Waktu X" stays in the status bar after a prayer begins
+const LATE_GRACE_MS = 3 * 60_000 // a missed notification older than this is skipped, not sent late
 
-function fail(code, message) {
-  return Object.assign(new Error(message), { code })
+const T = {
+  id: {
+    names: { imsak: 'Imsak', fajr: 'Subuh', sunrise: 'Terbit', dhuhr: 'Dzuhur', asr: 'Ashar', maghrib: 'Maghrib', isha: 'Isya' },
+    friday: 'Jumat',
+    min: (n) => `${n} mnt`, hr: (h, m) => (m ? `${h} j ${m} mnt` : `${h} jam`),
+    left: (x) => `${x} lagi`,
+    timeOf: (p) => `Waktu ${p}`,
+    atTitle: (p) => `Waktu ${p}`,
+    atBody: (p, t, place) => `Sudah masuk waktu ${p} (${t}) untuk ${place}.`,
+    preTitle: (n, p) => `${n} menit lagi ${p}`,
+    preBody: (p, t, place) => `${p} pukul ${t} untuk ${place}.`,
+    imsakTitle: 'Waktu imsak',
+    imsakBody: (i, f) => `Imsak pukul ${i}, Subuh ${f}.`,
+    sunriseTitle: (n) => `Subuh berakhir ${n} menit lagi`,
+    sunriseBody: (t, place) => `Matahari terbit pukul ${t} di ${place}.`,
+    fridayTitle: (n) => `Jumatan ${n} menit lagi`,
+    fridayBody: (t, place) => `Jumat pukul ${t} di ${place}. Saatnya bersiap ke masjid.`,
+    heading: (place, date) => `Jadwal sholat ${place}, ${date}`,
+    next: (p, t, x) => `Berikutnya: ${p} ${t} (${x} lagi)`,
+    locale: 'id-ID'
+  },
+  en: {
+    names: { imsak: 'Imsak', fajr: 'Fajr', sunrise: 'Sunrise', dhuhr: 'Dhuhr', asr: 'Asr', maghrib: 'Maghrib', isha: 'Isha' },
+    friday: "Jumu'ah",
+    min: (n) => `${n} min`, hr: (h, m) => (m ? `${h} h ${m} min` : `${h} h`),
+    left: (x) => `${x} left`,
+    timeOf: (p) => `${p} time`,
+    atTitle: (p) => `It's time for ${p}`,
+    atBody: (p, t, place) => `${p} began at ${t} in ${place}.`,
+    preTitle: (n, p) => `${p} in ${n} minutes`,
+    preBody: (p, t, place) => `${p} at ${t} in ${place}.`,
+    imsakTitle: 'Imsak',
+    imsakBody: (i, f) => `Imsak at ${i}, Fajr at ${f}.`,
+    sunriseTitle: (n) => `Fajr ends in ${n} minutes`,
+    sunriseBody: (t, place) => `Sunrise is at ${t} in ${place}.`,
+    fridayTitle: (n) => `Jumu'ah in ${n} minutes`,
+    fridayBody: (t, place) => `Jumu'ah at ${t} in ${place}. Time to get ready for the mosque.`,
+    heading: (place, date) => `Prayer times for ${place}, ${date}`,
+    next: (p, t, x) => `Next: ${p} at ${t} (${x} left)`,
+    locale: 'en-GB'
+  }
 }
 
-// Orca hands workers its launch PATH. Apps opened from the Dock often miss the
-// places fvm usually lives, so add them after whatever is already there.
-function buildEnv() {
-  const home = homedir()
-  const extra = IS_WIN
-    ? [
-        path.join(process.env.LOCALAPPDATA ?? '', 'Pub', 'Cache', 'bin'),
-        path.join(process.env.ProgramData ?? 'C:\\ProgramData', 'chocolatey', 'bin'),
-        path.join(home, 'fvm', 'bin')
-      ]
-    : [
-        path.join(home, '.pub-cache', 'bin'),
-        path.join(home, 'fvm', 'bin'),
-        '/opt/homebrew/bin',
-        '/usr/local/bin',
-        '/home/linuxbrew/.linuxbrew/bin'
-      ]
-  const current = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)
-  const merged = [...current, ...extra.filter((p) => p && !current.includes(p))]
-  return { ...process.env, PATH: merged.join(path.delimiter), NO_COLOR: '1', TERM: 'dumb' }
+function pickLanguage(setting) {
+  if (setting === 'id' || setting === 'en') return setting
+  const locale = (Intl.DateTimeFormat().resolvedOptions().locale || process.env.LANG || '').toLowerCase()
+  return /^(id|ms|in)\b/.test(locale) ? 'id' : 'en'
+}
+const PRAYERS = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha']
+const ORDER = ['imsak', 'fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha']
+
+const pad = (n) => String(n).padStart(2, '0')
+const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
+const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+const label = (t, key, date) => (key === 'dhuhr' && date.getDay() === 5 ? t.friday : t.names[key])
+
+function untilText(t, ms) {
+  const min = Math.max(0, Math.ceil(ms / 60_000))
+  return min < 60 ? t.min(min) : t.hr(Math.floor(min / 60), min % 60)
 }
 
-const ANSI_RE = /\u001b\[[0-9;?]*[A-Za-z]|\u001b\][^\u0007]*\u0007/g
-const clean = (s) => s.replace(ANSI_RE, '').replace(/\r/g, '')
+/**
+ * Every notification Waqt could send for the given days, as { id, at: Date, title, body }.
+ * Ids are stable per day, so the caller can remember which ones it already sent.
+ * @param {Array<[Record<string, Date>, Date]>} days  [prayer times, a Date on that day]
+ */
+export function notificationEvents(cfg, days) {
+  const L = T[cfg.lang]
+  const place = cfg.place.name
+  const events = []
+  const add = (id, at, title, body) => events.push({ id, at, title, body })
+  for (const [t, d] of days) {
+    const day = dayKey(d)
+    const friday = d.getDay() === 5 && cfg.fridayRemind > 0
+    for (const key of PRAYERS) {
+      if (!cfg.prayers[key]) continue
+      const name = label(L, key, d)
+      if (cfg.notifyAtTime) add(`${day}-${key}-at`, t[key], L.atTitle(name), L.atBody(name, hhmm(t[key]), place))
+      // On Friday the Jumu'ah reminder below takes the place of the regular Dhuhr one.
+      if (cfg.remindBefore > 0 && !(friday && key === 'dhuhr')) {
+        add(`${day}-${key}-pre`, new Date(t[key] - cfg.remindBefore * 60_000), L.preTitle(cfg.remindBefore, name), L.preBody(name, hhmm(t[key]), place))
+      }
+    }
+    if (friday) add(`${day}-jumuah-pre`, new Date(t.dhuhr - cfg.fridayRemind * 60_000), L.fridayTitle(cfg.fridayRemind), L.fridayBody(hhmm(t.dhuhr), place))
+    if (cfg.remindSunrise > 0) add(`${day}-sunrise-pre`, new Date(t.sunrise - cfg.remindSunrise * 60_000), L.sunriseTitle(cfg.remindSunrise), L.sunriseBody(hhmm(t.sunrise), place))
+    if (cfg.showImsak) add(`${day}-imsak-at`, t.imsak, L.imsakTitle, L.imsakBody(hhmm(t.imsak), hhmm(t.fajr)))
+  }
+  return events
+}
 
 export default function activate(orca) {
-  const env = buildEnv()
-  const jobs = new Map()
-  let jobCounter = 0
-  let activeJob = null
+  const fired = new Set()
+  let timer = null
+  let lastStatus = ''
 
-  async function readSettings() {
+  async function readConfig() {
+    let s = {}
     try {
-      const { settings } = await orca.host.call('settings.get', {})
-      return settings ?? {}
-    } catch {
-      return {}
+      s = (await orca.host.call('settings.get', {})).settings ?? {}
+    } catch {}
+    const city = CITIES[s.city] ? s.city : s.city === 'custom' ? 'custom' : 'jakarta'
+    let place
+    if (city === 'custom') {
+      const lat = Number(s.latitude)
+      const lng = Number(s.longitude)
+      const ok = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 66 && Math.abs(lng) <= 180
+      place = ok ? { name: `${lat.toFixed(3)}, ${lng.toFixed(3)}`, lat, lng } : { name: 'Jakarta', lat: CITIES.jakarta[1], lng: CITIES.jakarta[2] }
+    } else {
+      const [name, lat, lng] = CITIES[city]
+      place = { name, lat, lng }
+    }
+    return {
+      place,
+      method: METHODS[s.method] ? s.method : 'kemenag',
+      asr: s.asr === 'hanafi' ? 'hanafi' : 'shafii',
+      ihtiyat: Number.isInteger(s.ihtiyat) ? s.ihtiyat : 2,
+      lang: pickLanguage(s.language),
+      remindBefore: Number.isInteger(s.remindBefore) ? s.remindBefore : 10,
+      notifyAtTime: s.notifyAtTime !== false,
+      showImsak: s.showImsak === true,
+      prayers: {
+        fajr: s.notifyFajr !== false,
+        dhuhr: s.notifyDhuhr !== false,
+        asr: s.notifyAsr !== false,
+        maghrib: s.notifyMaghrib !== false,
+        isha: s.notifyIsha !== false
+      },
+      remindSunrise: Number.isInteger(s.remindSunrise) ? s.remindSunrise : 15,
+      fridayRemind: Number.isInteger(s.fridayRemind) ? s.fridayRemind : 30
     }
   }
 
-  async function fvmCommand() {
-    const { fvmPath } = await readSettings()
-    return typeof fvmPath === 'string' && fvmPath.trim() ? fvmPath.trim() : 'fvm'
-  }
-
-  // Every argument is either a fixed literal or a value checked against
-  // VERSION_RE, so the cmd.exe route on Windows has nothing to interpret.
-  async function spawnFvm(args, { cwd, signal, onLine, timeoutMs = 60_000 } = {}) {
-    const bin = await fvmCommand()
-    let file = bin
-    let argv = args
-    let opts = { cwd: cwd ?? homedir(), env, windowsHide: true, signal }
-    if (IS_WIN && !/\.exe$/i.test(bin)) {
-      // fvm from `dart pub global activate` is a .bat, which needs cmd.exe.
-      file = process.env.ComSpec ?? 'cmd.exe'
-      argv = ['/d', '/s', '/c', `"${[bin, ...args].map((a) => `"${a}"`).join(' ')}"`]
-      opts.windowsVerbatimArguments = true
-    }
-    return new Promise((resolve, reject) => {
-      let child
-      try {
-        child = spawn(file, argv, opts)
-      } catch (error) {
-        reject(error)
-        return
-      }
-      let stdout = ''
-      let stderr = ''
-      let pending = ''
-      const timer = setTimeout(() => child.kill(), timeoutMs)
-      const feed = (chunk, isErr) => {
-        const text = clean(chunk.toString())
-        if (isErr) stderr += text
-        else stdout += text
-        if (!onLine) return
-        pending += text
-        const lines = pending.split('\n')
-        pending = lines.pop()
-        for (const line of lines) if (line.trim()) onLine(line)
-      }
-      child.stdout.on('data', (c) => feed(c, false))
-      child.stderr.on('data', (c) => feed(c, true))
-      child.on('error', (error) => {
-        clearTimeout(timer)
-        if (error.code === 'ENOENT') {
-          reject(fail('unavailable', `Can't find fvm (looked for "${bin}"). Install FVM or set its path in the plugin settings.`))
-        } else reject(error)
-      })
-      child.on('close', (code) => {
-        clearTimeout(timer)
-        if (onLine && pending.trim()) onLine(pending)
-        resolve({ code, stdout, stderr })
-      })
+  function dayTimes(cfg, date) {
+    return prayerTimes(date, {
+      lat: cfg.place.lat,
+      lng: cfg.place.lng,
+      method: cfg.method,
+      asr: cfg.asr,
+      ihtiyat: cfg.ihtiyat
     })
   }
 
-  async function fvmJson(args, cwd) {
-    const { code, stdout, stderr } = await spawnFvm(['api', ...args, '--compress'], { cwd })
-    // Update notices can precede the JSON, so start at the first brace.
-    const start = stdout.indexOf('{')
-    if (code !== 0 || start < 0) {
-      throw fail('action_failed', (stderr || stdout).trim().split('\n').slice(-3).join(' ') || `fvm api ${args[0]} failed`)
-    }
-    return JSON.parse(stdout.slice(start))
-  }
+  function buildSchedule(cfg, now = new Date()) {
+    const t = T[cfg.lang]
+    const tomorrowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 12)
+    const today = dayTimes(cfg, now)
+    const tomorrow = dayTimes(cfg, tomorrowDate)
+    const rows = (x, d) => ORDER.map((key) => ({ key, label: label(t, key, d), time: hhmm(x[key]), at: x[key].getTime() }))
 
-  async function focusedWorkspace() {
-    const ctx = await orca.host.call('workspace.readContext', {})
-    if (!ctx) return null
-    const { workspaces } = await orca.host.call('workspace.list', {})
-    const row =
-      workspaces.find((w) => ctx.workspaceId && w.id === ctx.workspaceId) ??
-      workspaces.find((w) => w.name === ctx.displayName && w.branch === ctx.branch)
-    if (!row) return { name: ctx.displayName, branch: ctx.branch, path: null, remote: false }
-    const remote = row.hostId != null && row.hostId !== 'local'
-    return { name: row.name, branch: row.branch, path: row.path, remote }
-  }
-
-  async function globalVersion(context) {
-    const link = context?.globalCacheLink
-    const root = context?.versionsCachePath
-    if (!link || !root) return null
-    try {
-      const target = await realpath(link)
-      const rel = path.relative(await realpath(root), target)
-      return rel && !rel.startsWith('..') ? rel.split(path.sep).join('/') : path.basename(target)
-    } catch {
-      return null // no global SDK set
-    }
-  }
-
-  function jobView(job) {
-    const { id, action, version, state, exitCode, startedAt, endedAt, log } = job
-    return { id, action, version, state, exitCode, startedAt, endedAt, log: log.slice(-80) }
-  }
-
-  orca.panels.handle('fvm.status', async () => {
-    const workspace = await focusedWorkspace().catch(() => null)
-    const local = workspace?.path && !workspace.remote ? workspace.path : null
-    const [context, list, project] = await Promise.allSettled([
-      fvmJson(['context']),
-      fvmJson(['list', '--skip-size-calculation']),
-      local ? fvmJson(['project', '--path', local], local) : Promise.resolve(null)
-    ])
-    if (context.status === 'rejected') {
-      return { ok: false, error: context.reason.message, workspace }
-    }
-    const ctx = context.value.context ?? {}
-    const proj = project.status === 'fulfilled' ? project.value?.project ?? null : null
+    const upcoming = [...PRAYERS.map((k) => ({ key: k, at: today[k], date: now })), ...PRAYERS.map((k) => ({ key: k, at: tomorrow[k], date: tomorrowDate }))]
+    const next = upcoming.find((p) => p.at > now)
+    const current = [...PRAYERS].reverse().map((k) => ({ key: k, at: today[k] })).find((p) => p.at <= now) ?? null
     return {
-      ok: true,
-      fvmVersion: ctx.fvmVersion ?? null,
-      globalVersion: await globalVersion(ctx),
-      workspace,
-      project: proj && {
-        name: proj.name,
-        hasConfig: proj.hasConfig,
-        isFlutter: proj.isFlutter,
-        pinned: proj.pinnedVersion?.name ?? null,
-        activeFlavor: proj.activeFlavor ?? null,
-        flavors: proj.flavors ?? {}
-      },
-      installed: list.status === 'fulfilled'
-        ? (list.value.versions ?? []).map((v) => ({
-            name: v.name,
-            type: v.type,
-            channel: v.releaseFromChannel ?? null,
-            flutter: v.flutterSdkVersion ?? null,
-            dart: v.dartSdkVersion ?? null,
-            isSetup: v.isSetup !== false
-          }))
-        : [],
-      unused: list.status === 'fulfilled' ? list.value.unreferencedVersions ?? [] : [],
-      activeJob: activeJob ? jobView(activeJob) : null
+      place: cfg.place.name,
+      method: METHODS[cfg.method].name,
+      now: now.getTime(),
+      today: rows(today, now),
+      tomorrow: rows(tomorrow, tomorrowDate),
+      next: next && { key: next.key, label: label(t, next.key, next.date), time: hhmm(next.at), at: next.at.getTime() },
+      current: current && { key: current.key, label: label(t, current.key, now), at: current.at.getTime() },
+      lang: cfg.lang,
+      _today: today,
+      _tomorrow: tomorrow
     }
+  }
+
+  async function notify(title, body) {
+    try {
+      await orca.host.call('notifications.show', { title, body })
+    } catch (e) {
+      orca.log(`notification failed: ${e.message}`)
+    }
+  }
+
+  async function checkNotifications(cfg, sched, now) {
+    const events = notificationEvents(cfg, [[sched._today, new Date(now)], [sched._tomorrow, new Date(now + 86_400_000)]])
+    for (const ev of events) {
+      const late = now - ev.at
+      if (late < 0 || fired.has(ev.id)) continue
+      fired.add(ev.id)
+      if (late <= LATE_GRACE_MS) await notify(ev.title, ev.body)
+    }
+    if (fired.size > 200) for (const id of [...fired].slice(0, 100)) fired.delete(id)
+  }
+
+  async function updateStatusBar(sched, now) {
+    const t = T[sched.lang]
+    let text, tone
+    const cur = sched.current
+    if (cur && now - cur.at < WINDOW_MIN * 60_000) {
+      text = t.timeOf(cur.label)
+      tone = 'success'
+    } else if (sched.next) {
+      const left = sched.next.at - now
+      text = left <= 60 * 60_000 ? `${sched.next.label} ${sched.next.time}, ${t.left(untilText(t, left))}` : `${sched.next.label} ${sched.next.time}`
+      tone = left <= 10 * 60_000 ? 'warning' : 'neutral'
+    } else {
+      text = 'Waqt'
+      tone = 'neutral'
+    }
+    const tooltip = `${sched.place}: ` + sched.today.filter((r) => PRAYERS.includes(r.key)).map((r) => `${r.label} ${r.time}`).join(', ')
+    const key = `${text}|${tone}|${tooltip}`
+    if (key === lastStatus) return
+    lastStatus = key
+    try {
+      await orca.host.call('statusBar.update', { id: 'next-prayer', text, tone, tooltip, visible: true })
+    } catch (e) {
+      orca.log(`status bar update failed: ${e.message}`)
+    }
+  }
+
+  const publicView = ({ _today, _tomorrow, ...rest }) => rest
+
+  async function tick() {
+    try {
+      const now = new Date()
+      const cfg = await readConfig()
+      const sched = buildSchedule(cfg, now)
+      await updateStatusBar(sched, now.getTime())
+      await checkNotifications(cfg, sched, now.getTime())
+      orca.panels.post('waqt.tick', publicView(sched))
+    } catch (e) {
+      orca.log(`tick failed: ${e.stack || e.message}`)
+    }
+  }
+
+  orca.panels.handle('waqt.schedule', async () => publicView(buildSchedule(await readConfig())))
+
+  orca.commands.register('waqt.today', async () => {
+    const cfg = await readConfig()
+    const t = T[cfg.lang]
+    const sched = buildSchedule(cfg)
+    const lines = sched.today.map((r) => `${r.label.padEnd(8)} ${r.time}`)
+    const head = t.heading(sched.place, new Date().toLocaleDateString(t.locale, { weekday: 'long', day: 'numeric', month: 'long' }))
+    const next = sched.next ? `\n${t.next(sched.next.label, sched.next.time, untilText(t, sched.next.at - Date.now()))}` : ''
+    return `${head}\n\n${lines.join('\n')}${next}`
   })
 
-  orca.panels.handle('fvm.releases', async ({ channel = 'stable', limit = 30 } = {}) => {
-    if (!CHANNELS.has(channel)) throw fail('invalid_params', 'channel must be stable, beta or dev')
-    const n = Math.max(1, Math.min(100, Number(limit) || 30))
-    const data = await fvmJson(['releases', '--limit', String(n), '--filter-channel', channel])
-    return (data.versions ?? []).map((r) => ({
-      version: r.version,
-      channel: r.channel,
-      date: r.release_date,
-      dart: (r.dart_sdk_version ?? '').split(' ')[0] || null
-    }))
+  // Mark everything already past as sent, so enabling the plugin never fires a burst.
+  readConfig().then((cfg) => {
+    const now = Date.now()
+    const sched = buildSchedule(cfg)
+    for (const ev of notificationEvents(cfg, [[sched._today, new Date(now)]])) {
+      if (now - ev.at > LATE_GRACE_MS) fired.add(ev.id)
+    }
+    tick()
+    timer = setInterval(tick, TICK_MS)
   })
 
-  orca.panels.handle('fvm.run', async ({ action, version } = {}) => {
-    if (!ACTIONS.has(action)) throw fail('invalid_params', `Unknown action "${action}"`)
-    if (typeof version !== 'string' || !VERSION_RE.test(version)) {
-      throw fail('invalid_params', 'That is not a valid FVM version name.')
-    }
-    if (activeJob) throw fail('conflict', `fvm ${activeJob.action} ${activeJob.version} is still running.`)
-
-    let cwd
-    if (action === 'use') {
-      const ws = await focusedWorkspace()
-      if (!ws?.path) throw fail('invalid_params', 'Focus a workspace in Orca first.')
-      if (ws.remote) throw fail('invalid_params', 'This workspace is on a remote host; FVM Manager only runs fvm on this computer.')
-      cwd = ws.path
-    }
-    const args = [action, version]
-    if (action === 'use') {
-      const { skipPubGet } = await readSettings()
-      if (skipPubGet) args.push('--skip-pub-get')
-    }
-    args.push('--fvm-skip-input')
-
-    const job = {
-      id: `job-${++jobCounter}`,
-      action,
-      version,
-      state: 'running',
-      exitCode: null,
-      startedAt: Date.now(),
-      endedAt: null,
-      log: [`$ fvm ${args.join(' ')}`]
-    }
-    jobs.set(job.id, job)
-    activeJob = job
-
-    // Batch output so a chatty install stays well inside Orca's post budget.
-    let buffered = []
-    const flush = () => {
-      if (!buffered.length) return
-      orca.panels.post('fvm.job.output', { id: job.id, lines: buffered })
-      buffered = []
-    }
-    const ticker = setInterval(flush, 500)
-    const onLine = (line) => {
-      job.log.push(line)
-      if (job.log.length > MAX_LOG_LINES) job.log.splice(0, job.log.length - MAX_LOG_LINES)
-      buffered.push(line)
-    }
-
-    orca.panels.post('fvm.job.started', jobView(job))
-    spawnFvm(args, { cwd, onLine, timeoutMs: 45 * 60_000 })
-      .then(({ code }) => {
-        job.exitCode = code
-        job.state = code === 0 ? 'done' : 'failed'
-      })
-      .catch((error) => {
-        onLine(error.message)
-        job.state = 'failed'
-      })
-      .finally(async () => {
-        clearInterval(ticker)
-        flush()
-        job.endedAt = Date.now()
-        activeJob = null
-        orca.panels.post('fvm.job.finished', jobView(job))
-        orca.log(`fvm ${action} ${version}: ${job.state}`)
-        try {
-          await orca.host.call('notifications.show', {
-            title: job.state === 'done' ? `fvm ${action} ${version} finished` : `fvm ${action} ${version} failed`,
-            body: job.log[job.log.length - 1] ?? ''
-          })
-        } catch {}
-      })
-
-    return { jobId: job.id }
-  })
-
-  orca.panels.handle('fvm.job', async ({ id } = {}) => {
-    const job = jobs.get(id)
-    if (!job) throw fail('invalid_params', 'No such job')
-    return jobView(job)
-  })
+  return { dispose: () => timer && clearInterval(timer) }
 }

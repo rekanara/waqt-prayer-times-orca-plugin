@@ -1,36 +1,32 @@
-# FVM Manager for Orca
+# Waqt: Prayer Times
 
-Control [FVM](https://fvm.app) (Flutter Version Manager) from Orca's right sidebar.
+Islamic prayer times in [Orca](https://orca.dev)'s status bar. Bahasa Indonesia and English.
 
-- Shows the Flutter SDK pinned by the focused workspace (`.fvmrc`), the global SDK and your FVM version.
-- Lists installed SDKs: **Use** (`fvm use`), **Global** (`fvm global`), **Remove** (`fvm remove`).
-- Lists Flutter releases per channel: **Install** (`fvm install`) or **Use** directly.
-- Streams fvm's output into the panel and shows a desktop notification when a job ends.
+- **Status bar**: the next prayer and its time, a countdown in the last hour, and "Asr time" for 15 minutes after a prayer begins. Click it for today's full timetable.
+- **Reminders**: a desktop notification a few minutes before each prayer (10 by default) and when it begins, with each prayer switchable on or off. A reminder before sunrise, when Fajr ends (15 minutes by default). On Fridays an earlier Jumu'ah reminder (30 minutes by default) instead of the regular Dhuhr one.
+- **Panel**: today's and tomorrow's times, a line from Fajr to Isha showing where the day is, and the Hijri date.
+- **Offline**: calculated on your computer, no internet. Methods: Kemenag (Indonesia), JAKIM, MUIS, Muslim World League, Egyptian General Authority, ISNA and Umm al-Qura. With Kemenag, Jakarta's times match the official 2026 timetable to within a minute.
 
-## Requirements
+## Settings
 
-- Orca 1.4.246 or later
-- FVM 3.2 or later on this computer (uses `fvm api` and `--fvm-skip-input`)
+Settings → Plugins → Waqt: language, city (31 built in) or your own coordinates, calculation method, Asr school, safety margin (ihtiyat), reminder minutes, a notification when a prayer begins, which prayers to notify, the sunrise and Jumu'ah reminders, and an imsak reminder for Ramadan.
 
-## Develop
+Times are shown in your computer's time zone. Where the sun never sinks far enough for Fajr or Isha (northern Europe in summer, for example), those two are estimated from the length of the night (the "angle-based" rule). Locations above about 66° north or south are not supported yet.
+
+---
+
+**Bahasa Indonesia:** jadwal sholat di status bar Orca, dengan hitung mundur, notifikasi pengingat, dan panel jadwal hari ini dan besok. Dihitung offline; bawaan memakai kriteria Kemenag. Pilih bahasa di Settings → Plugins → Waqt.
+
+## Development
 
 ```sh
 orca plugin validate .
+node --test test/*.test.mjs
 orca plugin dev load .          # rerun with the --approve <fingerprint> it prints
-orca plugin dev request . fvm.status
-orca plugin logs local.fvm-manager
+orca plugin dev request . waqt.schedule
+orca plugin shot . --status-bar
+orca plugin logs local.waqt
 ```
-
-Or in Orca: Settings → Plugins → Development folders… → add this folder.
-
-If Orca can't find `fvm`, set **FVM executable** in the plugin's settings to the full path
-(`which fvm` on macOS/Linux, `where fvm` on Windows).
-
-## Access
-
-Runs as a trusted worker: it starts `fvm` with your user account. The panel can only ask for
-four actions (use, install, remove, global) with a checked version name; it never sends a
-command line. Workspaces on SSH or paired hosts are shown but not changed.
 
 ## License
 

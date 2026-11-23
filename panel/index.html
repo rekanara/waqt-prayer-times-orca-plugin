@@ -3,357 +3,265 @@
   <head>
     <meta charset="utf-8" />
     <style>
+      /* Neobrutalism: thick ink borders, hard offset shadows, flat bright fills. */
       :root {
-        --fg: var(--orca-foreground, #e6e6e6);
-        --bg: var(--orca-background, transparent);
-        --muted: var(--orca-muted-foreground, #9a9a9a);
-        --line: var(--orca-border, #3a3a3a);
-        --soft: var(--orca-muted, #262626);
-        --accent: var(--orca-primary, #6aa6ff);
-        --accent-fg: var(--orca-primary-foreground, #0b1a33);
-        --danger: var(--orca-destructive, #e5534b);
-        --radius: var(--orca-radius, 6px);
-        --mono: var(--orca-font-mono, ui-monospace, 'SF Mono', Menlo, Consolas, monospace);
+        --ink: #000;
+        --bg: #e3f5ec;
+        --surface: #fff;
+        --text: #000;
+        --muted: #3f5a4d;
+        --sun: #ffc93c;
+        --go: #22c55e;
+        --border: 2px solid var(--ink);
+        --shadow: 4px 4px 0 var(--ink);
+        --display: 'Arial Black', 'Helvetica Neue', system-ui, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #0f2a22; --surface: #1b4034; --text: #fff; --muted: #b5d6c6; }
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        padding: 14px 12px 24px;
-        font: 13px/1.45 var(--orca-font-sans, system-ui, sans-serif);
-        color: var(--fg);
+        padding: 16px 14px 28px;
+        font: 500 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color: var(--text);
         background: var(--bg);
       }
-      button {
-        font: inherit;
-        color: var(--fg);
-        background: transparent;
-        border: 1px solid var(--line);
-        border-radius: var(--radius);
-        padding: 3px 8px;
-        cursor: pointer;
+      .place { color: var(--muted); font-size: 12px; }
+      .place b { color: var(--text); font-weight: 800; }
+
+      /* The next prayer is the one loud thing on the panel. */
+      .next {
+        margin: 12px 0 8px;
+        padding: 12px 14px 14px;
+        background: var(--sun);
+        color: #000;
+        border: 3px solid var(--ink);
+        border-radius: 6px;
+        box-shadow: 6px 6px 0 var(--ink);
       }
-      button:hover:not(:disabled) { border-color: var(--fg); }
-      button:focus-visible { outline: 2px solid var(--orca-ring, var(--accent)); outline-offset: 1px; }
-      button:disabled { opacity: 0.45; cursor: default; }
-      button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-      button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
-
-      .where { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-      .where b { color: var(--fg); font-weight: 600; }
-
-      /* The pinned SDK is the one thing to see at a glance. */
-      .pin { margin: 10px 0 16px; padding-left: 10px; border-left: 3px solid var(--accent); }
-      .pin.none { border-left-color: var(--line); }
-      .pin .version {
-        font-size: 30px;
-        line-height: 1.1;
-        font-weight: 650;
-        letter-spacing: -0.02em;
+      .next.now { background: var(--go); }
+      .next .name { font: 16px/1.2 var(--display); }
+      .next .time {
+        font: 52px/1 var(--display);
+        letter-spacing: -0.03em;
         font-variant-numeric: tabular-nums;
-        overflow-wrap: anywhere;
+        margin: 6px 0 8px;
       }
-      .pin.none .version { font-size: 17px; font-weight: 500; color: var(--muted); }
-      .pin .sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
+      .next .left {
+        display: inline-block;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        background: #fff;
+        border: var(--border);
+        border-radius: 4px;
+        padding: 1px 7px;
+      }
 
-      h2 {
+      /* The day as one bar from Subuh to Isya, with a diamond for now. */
+      .track { position: relative; height: 30px; margin: 20px 4px 4px; }
+      .track .rail { position: absolute; left: 0; right: 0; top: 9px; height: 12px; background: var(--surface); border: var(--border); border-radius: 3px; box-shadow: 2px 2px 0 var(--ink); }
+      .track .done { position: absolute; left: 0; top: 9px; height: 12px; background: var(--go); border: var(--border); border-right-width: 0; border-radius: 3px 0 0 3px; }
+      .track .tick { position: absolute; top: 4px; width: 3px; height: 22px; background: var(--ink); transform: translateX(-1.5px); }
+      .track .tick.past { background: var(--ink); }
+      .track .me { position: absolute; top: 7px; width: 16px; height: 16px; background: var(--sun); border: var(--border); transform: translateX(-8px) rotate(45deg); }
+
+      .tabs { display: inline-flex; margin-top: 18px; border: var(--border); border-radius: 4px; box-shadow: 2px 2px 0 var(--ink); overflow: hidden; }
+      .tabs button {
+        font: 700 12px/1.2 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color: #000; background: #fff; border: 0; border-radius: 0; padding: 4px 10px; cursor: pointer;
+      }
+      .tabs button + button { border-left: var(--border); }
+      .tabs button[aria-pressed='true'] { background: #000; color: #fff; }
+      .tabs button:focus-visible { outline: 3px solid var(--go); outline-offset: -3px; }
+
+      table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        margin-top: 10px;
+        font-variant-numeric: tabular-nums;
+        background: var(--surface);
+        border: var(--border);
+        border-radius: 6px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      td { padding: 7px 12px; border-top: var(--border); font-weight: 700; }
+      tr:first-child td { border-top: 0; }
+      td.t { text-align: right; }
+      tr.minor td { color: var(--muted); font-size: 12px; font-weight: 500; }
+      tr.past td { color: var(--muted); font-weight: 500; }
+      tr.current td { background: var(--sun); color: #000; font-weight: 900; }
+
+      .foot { margin-top: 16px; color: var(--muted); font-size: 12px; }
+      .error {
+        margin-top: 12px;
+        padding: 8px 10px;
         font-size: 12px;
         font-weight: 600;
-        margin: 18px 0 6px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      h2 .count { color: var(--muted); font-weight: 400; }
-      h2 .grow { flex: 1; }
-
-      ul { list-style: none; margin: 0; padding: 0; }
-      li {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 0;
-        border-top: 1px solid var(--line);
-      }
-      li:last-child { border-bottom: 1px solid var(--line); }
-      .name { flex: 1; min-width: 0; }
-      .name .v { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-      .name .d { color: var(--muted); font-size: 11.5px; }
-      .tag {
-        font-size: 11px;
-        padding: 0 5px;
-        border-radius: 999px;
-        background: var(--soft);
-        color: var(--muted);
-        margin-left: 4px;
-        white-space: nowrap;
-      }
-      .tag.on { background: var(--accent); color: var(--accent-fg); }
-      .actions { display: flex; gap: 4px; flex-shrink: 0; }
-      .actions button { font-size: 12px; padding: 2px 7px; }
-
-      .channels { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-      .channels button { border: 0; border-radius: 0; font-size: 12px; padding: 2px 8px; }
-      .channels button[aria-pressed='true'] { background: var(--soft); font-weight: 600; }
-
-      .note { color: var(--muted); font-size: 12px; padding: 8px 0; }
-      .error {
-        border: 1px solid var(--danger);
-        border-radius: var(--radius);
-        padding: 8px 10px;
-        margin: 10px 0;
-        font-size: 12px;
-        overflow-wrap: anywhere;
-      }
-      .error b { color: var(--danger); }
-
-      .job { margin-top: 18px; border: 1px solid var(--line); border-radius: var(--radius); }
-      .job header { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12px; }
-      .job header .grow { flex: 1; overflow-wrap: anywhere; }
-      .job .state.running { color: var(--accent); }
-      .job .state.failed { color: var(--danger); }
-      .job pre {
-        margin: 0;
-        padding: 6px 8px;
-        max-height: 180px;
-        overflow: auto;
-        border-top: 1px solid var(--line);
-        font: 11px/1.45 var(--mono);
-        color: var(--muted);
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
+        color: #000;
+        background: #ffd6d6;
+        border: var(--border);
+        border-radius: 6px;
+        box-shadow: 3px 3px 0 var(--ink);
       }
       [hidden] { display: none !important; }
-      @media (prefers-reduced-motion: no-preference) {
-        .job .state.running::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: currentColor; animation: blink 1s infinite; vertical-align: 1px; }
-        @keyframes blink { 50% { opacity: 0.25; } }
-      }
     </style>
   </head>
   <body>
-    <div class="where" id="where">Looking for the focused workspace…</div>
-
-    <div class="pin none" id="pin">
-      <div class="version" id="pinVersion">…</div>
-      <div class="sub" id="pinSub"></div>
+    <div class="place" id="place"></div>
+    <div class="next" id="next" hidden>
+      <div class="name" id="nextName"></div>
+      <div class="time" id="nextTime"></div>
+      <div class="left" id="nextLeft"></div>
     </div>
+    <div class="track" id="track" hidden></div>
 
+    <div class="tabs" role="group" id="dayTabs">
+      <button data-day="today" aria-pressed="true"></button>
+      <button data-day="tomorrow" aria-pressed="false"></button>
+    </div>
+    <table><tbody id="rows"></tbody></table>
+    <div class="foot" id="foot"></div>
     <div class="error" id="error" hidden></div>
-
-    <section id="installedSection">
-      <h2>Installed SDKs <span class="count" id="installedCount"></span><span class="grow"></span>
-        <button id="refresh" title="Reload from fvm">Refresh</button>
-      </h2>
-      <ul id="installed"></ul>
-    </section>
-
-    <section>
-      <h2>Flutter releases <span class="grow"></span>
-        <span class="channels" role="group" aria-label="Release channel">
-          <button data-channel="stable" aria-pressed="true">Stable</button>
-          <button data-channel="beta" aria-pressed="false">Beta</button>
-        </span>
-      </h2>
-      <ul id="releases"><li class="note">Loading releases…</li></ul>
-    </section>
-
-    <div class="job" id="job" hidden>
-      <header>
-        <span class="state" id="jobState"></span>
-        <span class="grow" id="jobTitle"></span>
-        <button id="jobHide">Hide</button>
-      </header>
-      <pre id="jobLog"></pre>
-    </div>
 
     <script>
       'use strict'
       const plugin = window.orca.plugin
       const $ = (id) => document.getElementById(id)
-      let status = null
-      let channel = 'stable'
-      let busy = false
+      const PRAYERS = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha']
+      let data = null
+      let day = 'today'
 
-      function el(tag, props, ...children) {
-        const node = document.createElement(tag)
-        Object.assign(node, props || {})
-        for (const c of children) if (c != null) node.append(c)
-        return node
+      const STR = {
+        id: {
+          locale: 'id-ID', loading: 'Memuat jadwal…', today: 'Hari ini', tomorrow: 'Besok', days: 'Hari',
+          soon: 'kurang dari 1 menit lagi', left: (h, m) => (h ? `${h} jam ` : '') + (m ? `${m} menit ` : '') + 'lagi',
+          timeOf: (p) => `Waktu ${p}`, begun: 'Sudah masuk waktu', now: 'Sekarang', method: (m) => `Metode ${m}`,
+          error: (e) => `Jadwal tidak bisa dimuat: ${e}. Pastikan plugin aktif.`
+        },
+        en: {
+          locale: 'en-GB', loading: 'Loading prayer times…', today: 'Today', tomorrow: 'Tomorrow', days: 'Day',
+          soon: 'less than a minute left', left: (h, m) => (h ? `${h} h ` : '') + (m ? `${m} min ` : '') + 'left',
+          timeOf: (p) => `${p} time`, begun: 'The prayer time has begun', now: 'Now', method: (m) => `Method: ${m}`,
+          error: (e) => `Couldn't load prayer times: ${e}. Check that the plugin is enabled.`
+        }
       }
-      function button(label, onClick, cls) {
-        const b = el('button', { textContent: label, className: cls || '' })
-        b.addEventListener('click', onClick)
-        b.disabled = busy
-        return b
+      const guess = /^(id|ms|in)\b/i.test(navigator.language || '') ? 'id' : 'en'
+      const s = () => STR[(data && data.lang) || guess]
+
+      function applyStatic() {
+        document.documentElement.lang = (data && data.lang) || guess
+        $('dayTabs').setAttribute('aria-label', s().days)
+        document.querySelector('[data-day="today"]').textContent = s().today
+        document.querySelector('[data-day="tomorrow"]').textContent = s().tomorrow
       }
-      function showError(message, hint) {
-        const box = $('error')
-        box.replaceChildren(el('b', { textContent: message }), hint ? el('div', { textContent: hint }) : null)
+      applyStatic()
+      $('place').textContent = s().loading
+
+      function leftText(ms) {
+        const min = Math.max(0, Math.ceil(ms / 60000))
+        if (min < 1) return s().soon
+        return s().left(Math.floor(min / 60), min % 60)
+      }
+
+      function hijri(d) {
+        try {
+          return new Intl.DateTimeFormat(`${s().locale}-u-ca-islamic-umalqura`, { day: 'numeric', month: 'long', year: 'numeric' }).format(d)
+        } catch { return '' }
+      }
+
+      function render() {
+        if (!data) return
+        applyStatic()
+        const now = Date.now()
+        const today = new Date()
+        $('place').replaceChildren(
+          document.createElement('b'),
+          `, ${today.toLocaleDateString(s().locale, { weekday: 'long', day: 'numeric', month: 'long' })}`
+        )
+        $('place').firstChild.textContent = data.place
+
+        // Next prayer, or the one that just began.
+        const cur = data.current
+        const justStarted = cur && now - cur.at < 15 * 60000
+        const box = $('next')
         box.hidden = false
-      }
+        box.className = justStarted ? 'next now' : 'next'
+        if (justStarted) {
+          $('nextName').textContent = s().timeOf(cur.label)
+          $('nextTime').textContent = data.today.find((r) => r.key === cur.key).time
+          $('nextLeft').textContent = s().begun
+        } else if (data.next) {
+          $('nextName').textContent = data.next.label
+          $('nextTime').textContent = data.next.time
+          $('nextLeft').textContent = leftText(data.next.at - now)
+        }
 
-      function canUse() {
-        return status && status.workspace && status.workspace.path && !status.workspace.remote
-      }
+        // Day track from Subuh to Isya.
+        const marks = data.today.filter((r) => PRAYERS.includes(r.key))
+        const start = marks[0].at
+        const end = marks[marks.length - 1].at
+        const pos = (t) => `${Math.min(100, Math.max(0, ((t - start) / (end - start)) * 100))}%`
+        const track = $('track')
+        track.hidden = false
+        track.replaceChildren()
+        const rail = document.createElement('div'); rail.className = 'rail'
+        const done = document.createElement('div'); done.className = 'done'; done.style.width = pos(now)
+        track.append(rail, done)
+        for (const r of marks) {
+          const t = document.createElement('div')
+          t.className = 'tick' + (r.at <= now ? ' past' : '')
+          t.style.left = pos(r.at)
+          t.title = `${r.label} ${r.time}`
+          track.append(t)
+        }
+        if (now >= start && now <= end) {
+          const me = document.createElement('div'); me.className = 'me'; me.style.left = pos(now); me.title = s().now
+          track.append(me)
+        }
 
-      async function run(action, version) {
-        if (action === 'remove' && !confirm(`Remove Flutter ${version} from the FVM cache? Projects pinned to it will need it installed again.`)) return
-        try {
-          await plugin.request('fvm.run', { action, version }, { timeoutMs: 15000 })
-        } catch (e) {
-          showError(e.message || String(e))
-        }
-      }
-
-      function renderHeader() {
-        const ws = status && status.workspace
-        const where = $('where')
-        if (!ws) {
-          where.textContent = 'No workspace is focused. Open a Flutter project in Orca to see its SDK.'
-        } else {
-          where.replaceChildren(el('b', { textContent: ws.name }), ws.branch ? ` on ${ws.branch}` : '')
-        }
-        const pin = $('pin')
-        const p = status && status.project
-        if (p && p.pinned) {
-          pin.className = 'pin'
-          $('pinVersion').textContent = p.pinned
-          const parts = ['Pinned in .fvmrc']
-          if (p.activeFlavor) parts.push(`flavor ${p.activeFlavor}`)
-          const sdk = status.installed.find((v) => v.name === p.pinned)
-          if (sdk && sdk.dart) parts.push(`Dart ${sdk.dart}`)
-          if (!sdk) parts.push('not installed yet')
-          $('pinSub').textContent = parts.join(', ')
-        } else {
-          pin.className = 'pin none'
-          $('pinVersion').textContent = ws && ws.remote
-            ? 'Remote workspace'
-            : p
-              ? 'No Flutter SDK pinned'
-              : ws ? 'Not an FVM project' : 'No project'
-          $('pinSub').textContent = ws && ws.remote
-            ? 'FVM Manager runs fvm on this computer only.'
-            : ws ? 'Choose a version below and press Use to pin it here.' : ''
-        }
-        if (status && status.ok) {
-          const g = status.globalVersion ? `Global SDK ${status.globalVersion}` : 'No global SDK set'
-          $('pinSub').textContent += ($('pinSub').textContent ? '. ' : '') + g + (status.fvmVersion ? `. FVM ${status.fvmVersion}` : '')
-        }
-      }
-
-      function renderInstalled() {
-        const list = $('installed')
-        const items = (status && status.installed) || []
-        $('installedCount').textContent = items.length ? String(items.length) : ''
-        if (!items.length) {
-          list.replaceChildren(el('li', { className: 'note', textContent: 'No SDKs installed yet. Install one from the releases below.' }))
-          return
-        }
-        const pinned = status.project && status.project.pinned
-        list.replaceChildren(...items.map((v) => {
-          const name = el('div', { className: 'name' },
-            el('span', { className: 'v', textContent: v.name }),
-            v.name === pinned ? el('span', { className: 'tag on', textContent: 'this project' }) : null,
-            v.name === status.globalVersion ? el('span', { className: 'tag', textContent: 'global' }) : null,
-            status.unused.includes(v.name) ? el('span', { className: 'tag', textContent: 'unused' }) : null,
-            el('div', { className: 'd', textContent: [v.channel, v.dart && `Dart ${v.dart}`, !v.isSetup && 'not set up'].filter(Boolean).join(', ') })
-          )
-          const actions = el('div', { className: 'actions' })
-          if (v.name !== pinned && canUse()) actions.append(button('Use', () => run('use', v.name), 'primary'))
-          if (v.name !== status.globalVersion) actions.append(button('Global', () => run('global', v.name)))
-          actions.append(button('Remove', () => run('remove', v.name), 'danger'))
-          return el('li', {}, name, actions)
+        // Table.
+        const rows = day === 'today' ? data.today : data.tomorrow
+        $('rows').replaceChildren(...rows.map((r) => {
+          const tr = document.createElement('tr')
+          const minor = !PRAYERS.includes(r.key)
+          let state = ''
+          if (day === 'today') {
+            if (cur && r.key === cur.key) state = 'current'
+            else if (r.at < now) state = 'past'
+          }
+          tr.className = [minor ? 'minor' : '', state].filter(Boolean).join(' ')
+          const a = document.createElement('td'); a.textContent = r.label
+          const b = document.createElement('td'); b.className = 't'; b.textContent = r.time
+          tr.append(a, b)
+          return tr
         }))
+
+        const h = hijri(today)
+        $('foot').textContent = [h, s().method(data.method)].filter(Boolean).join('. ') + '.'
       }
 
-      async function loadReleases() {
-        const list = $('releases')
-        list.replaceChildren(el('li', { className: 'note', textContent: 'Loading releases…' }))
+      async function load() {
         try {
-          const releases = await plugin.request('fvm.releases', { channel, limit: 25 }, { timeoutMs: 60000 })
-          const installed = new Set(((status && status.installed) || []).map((v) => v.name))
-          list.replaceChildren(...releases.map((r) => {
-            const date = r.date ? new Date(r.date).toLocaleDateString() : ''
-            const name = el('div', { className: 'name' },
-              el('span', { className: 'v', textContent: r.version }),
-              installed.has(r.version) ? el('span', { className: 'tag', textContent: 'installed' }) : null,
-              el('div', { className: 'd', textContent: [date, r.dart && `Dart ${r.dart}`].filter(Boolean).join(', ') })
-            )
-            const actions = el('div', { className: 'actions' })
-            if (!installed.has(r.version)) actions.append(button('Install', () => run('install', r.version)))
-            if (canUse()) actions.append(button('Use', () => run('use', r.version), 'primary'))
-            return el('li', {}, name, actions)
-          }))
-          if (!releases.length) list.replaceChildren(el('li', { className: 'note', textContent: 'fvm returned no releases for this channel.' }))
+          data = await plugin.request('waqt.schedule', {}, { timeoutMs: 10000 })
+          $('error').hidden = true
+          render()
         } catch (e) {
-          list.replaceChildren(el('li', { className: 'note', textContent: `Couldn't load releases: ${e.message || e}` }))
+          $('error').textContent = s().error(e.message || e)
+          $('error').hidden = false
         }
       }
 
-      async function refresh() {
-        $('error').hidden = true
-        try {
-          status = await plugin.request('fvm.status', {}, { timeoutMs: 60000 })
-        } catch (e) {
-          status = null
-          showError(`The FVM worker didn't answer: ${e.message || e}`, 'Check that the plugin is enabled, then press Refresh.')
-        }
-        if (status && !status.ok) {
-          showError(status.error, 'Install FVM (https://fvm.app) or set the FVM executable in this plugin’s settings.')
-        }
-        if (status && status.activeJob) showJob(status.activeJob)
-        renderHeader()
-        renderInstalled()
-        await loadReleases()
-      }
-
-      // Job log
-      function setBusy(value) {
-        busy = value
-        document.querySelectorAll('.actions button').forEach((b) => { b.disabled = value })
-      }
-      function showJob(job) {
-        $('job').hidden = false
-        $('jobTitle').textContent = `fvm ${job.action} ${job.version}`
-        const state = $('jobState')
-        state.className = `state ${job.state}`
-        state.textContent = job.state === 'running' ? 'Running' : job.state === 'done' ? 'Done' : 'Failed'
-        $('jobLog').textContent = job.log.join('\n')
-        $('jobLog').scrollTop = $('jobLog').scrollHeight
-        setBusy(job.state === 'running')
-      }
-      plugin.on('fvm.job.started', showJob)
-      plugin.on('fvm.job.output', ({ lines }) => {
-        const log = $('jobLog')
-        log.textContent += '\n' + lines.join('\n')
-        log.scrollTop = log.scrollHeight
-      })
-      plugin.on('fvm.job.finished', (job) => {
-        showJob(job)
-        refresh()
-      })
-      $('jobHide').addEventListener('click', () => { $('job').hidden = true })
-      $('refresh').addEventListener('click', refresh)
-
-      document.querySelectorAll('[data-channel]').forEach((b) => {
-        b.addEventListener('click', () => {
-          channel = b.dataset.channel
-          document.querySelectorAll('[data-channel]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)))
-          loadReleases()
-        })
-      })
-
-      // Follow Orca's focus: a new workspace means a new project to read.
-      let lastWs
-      window.orca.on('workspace.changed', ({ context }) => {
-        const key = context ? `${context.workspaceId || ''}|${context.displayName}|${context.branch}` : ''
-        if (key === lastWs) return
-        lastWs = key
-        started = true
-        refresh()
-      })
-      // Orca sends the current context as soon as we subscribe; refresh anyway if it doesn't.
-      let started = false
-      setTimeout(() => { if (!started) { started = true; refresh() } }, 1500)
+      plugin.on('waqt.tick', (next) => { data = next; render() })
+      document.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {
+        day = b.dataset.day
+        document.querySelectorAll('[data-day]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)))
+        render()
+      }))
+      setInterval(render, 15000) // keep the countdown moving between worker ticks
+      load()
     </script>
   </body>
 </html>

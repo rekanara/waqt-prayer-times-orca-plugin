@@ -1,39 +1,277 @@
 {
   "manifestVersion": 2,
   "execution": "trusted-worker",
-  "id": "fvm-manager",
-  "name": "FVM Manager",
+  "id": "waqt",
+  "name": "Waqt: Prayer Times",
   "version": "0.1.0",
-  "description": "Control FVM (Flutter Version Manager) from Orca's sidebar: see the Flutter SDK pinned by the focused workspace, switch it with fvm use, install, remove and set the global SDK.",
+  "description": "Islamic prayer times in Orca's status bar: the next prayer, a countdown and desktop reminders. Calculated offline (Kemenag, JAKIM, MUIS, MWL, ISNA, Umm al-Qura and more), no internet needed. Bahasa Indonesia and English.",
   "license": "MIT",
-  "engines": { "orca": ">=1.4.246" },
+  "engines": {
+    "orca": ">=1.4.248"
+  },
   "pluginApi": 1,
   "main": "worker/main.mjs",
   "contributes": {
+    "statusBarItems": [
+      {
+        "id": "next-prayer",
+        "text": "Waqt",
+        "icon": "bell",
+        "tooltip": "Waqt: Prayer Times",
+        "command": "waqt.today"
+      }
+    ],
+    "commands": [
+      {
+        "id": "waqt.today",
+        "title": "Waqt: Show today's prayer times"
+      }
+    ],
     "panels": [
-      { "id": "fvm", "title": "FVM", "icon": "layers", "entry": "panel/index.html" }
+      {
+        "id": "times",
+        "title": "Prayer Times",
+        "icon": "calendar",
+        "entry": "panel/index.html"
+      }
     ],
     "settings": [
       {
-        "key": "fvmPath",
-        "title": "FVM executable",
-        "description": "Leave empty to find fvm on PATH. Set a full path if Orca can't find it (for example /opt/homebrew/bin/fvm).",
+        "key": "language",
+        "title": "Language",
+        "description": "Language of the status bar, panel and notifications.",
         "type": "string",
-        "default": "",
-        "placeholder": "fvm"
+        "enum": [
+          "auto",
+          "id",
+          "en"
+        ],
+        "enumLabels": [
+          "Automatic (follow this computer)",
+          "Bahasa Indonesia",
+          "English"
+        ],
+        "default": "auto"
       },
       {
-        "key": "skipPubGet",
-        "title": "Skip pub get after switching",
-        "description": "Pass --skip-pub-get to fvm use.",
+        "key": "city",
+        "title": "City",
+        "description": "Choose Other to use the latitude and longitude below.",
+        "type": "string",
+        "enum": [
+          "banda-aceh",
+          "medan",
+          "padang",
+          "pekanbaru",
+          "palembang",
+          "bandar-lampung",
+          "jakarta",
+          "bogor",
+          "depok",
+          "tangerang",
+          "bekasi",
+          "bandung",
+          "semarang",
+          "yogyakarta",
+          "solo",
+          "surabaya",
+          "malang",
+          "denpasar",
+          "mataram",
+          "kupang",
+          "pontianak",
+          "banjarmasin",
+          "balikpapan",
+          "samarinda",
+          "makassar",
+          "kendari",
+          "manado",
+          "ambon",
+          "jayapura",
+          "kuala-lumpur",
+          "singapura",
+          "custom"
+        ],
+        "enumLabels": [
+          "Banda Aceh",
+          "Medan",
+          "Padang",
+          "Pekanbaru",
+          "Palembang",
+          "Bandar Lampung",
+          "Jakarta",
+          "Bogor",
+          "Depok",
+          "Tangerang",
+          "Bekasi",
+          "Bandung",
+          "Semarang",
+          "Yogyakarta",
+          "Surakarta (Solo)",
+          "Surabaya",
+          "Malang",
+          "Denpasar",
+          "Mataram",
+          "Kupang",
+          "Pontianak",
+          "Banjarmasin",
+          "Balikpapan",
+          "Samarinda",
+          "Makassar",
+          "Kendari",
+          "Manado",
+          "Ambon",
+          "Jayapura",
+          "Kuala Lumpur",
+          "Singapore",
+          "Other (custom coordinates)"
+        ],
+        "default": "jakarta"
+      },
+      {
+        "key": "latitude",
+        "title": "Latitude",
+        "description": "Used only when City is Other. South is negative, for example -6.2.",
+        "type": "number",
+        "minimum": -66,
+        "maximum": 66,
+        "default": -6.1754
+      },
+      {
+        "key": "longitude",
+        "title": "Longitude",
+        "description": "Used only when City is Other. West is negative, for example -0.12.",
+        "type": "number",
+        "minimum": -180,
+        "maximum": 180,
+        "default": 106.8272
+      },
+      {
+        "key": "method",
+        "title": "Calculation method",
+        "type": "string",
+        "enum": [
+          "kemenag",
+          "jakim",
+          "muis",
+          "mwl",
+          "egypt",
+          "isna",
+          "makkah"
+        ],
+        "enumLabels": [
+          "Kemenag (Indonesia)",
+          "JAKIM (Malaysia)",
+          "MUIS (Singapore)",
+          "Muslim World League",
+          "Egyptian General Authority",
+          "ISNA (North America)",
+          "Umm al-Qura (Makkah)"
+        ],
+        "default": "kemenag"
+      },
+      {
+        "key": "asr",
+        "title": "Asr time",
+        "type": "string",
+        "enum": [
+          "shafii",
+          "hanafi"
+        ],
+        "enumLabels": [
+          "Standard (Shafi'i, Maliki, Hanbali)",
+          "Hanafi"
+        ],
+        "default": "shafii"
+      },
+      {
+        "key": "ihtiyat",
+        "title": "Safety margin (ihtiyat, minutes)",
+        "description": "Minutes added to each time. Kemenag uses 2.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 2
+      },
+      {
+        "key": "remindBefore",
+        "title": "Remind before (minutes)",
+        "description": "0 turns the early reminder off.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 60,
+        "default": 10
+      },
+      {
+        "key": "notifyAtTime",
+        "title": "Notify when a prayer time begins",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "notifyFajr",
+        "title": "Notify for Fajr (Subuh)",
+        "description": "Turn off a prayer to skip both its early reminder and the notification when it begins.",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "notifyDhuhr",
+        "title": "Notify for Dhuhr (Dzuhur)",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "notifyAsr",
+        "title": "Notify for Asr (Ashar)",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "notifyMaghrib",
+        "title": "Notify for Maghrib",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "notifyIsha",
+        "title": "Notify for Isha (Isya)",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "remindSunrise",
+        "title": "Remind before sunrise (minutes)",
+        "description": "Fajr ends at sunrise. 0 turns this reminder off.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 60,
+        "default": 15
+      },
+      {
+        "key": "fridayRemind",
+        "title": "Jumu'ah reminder (minutes before)",
+        "description": "On Fridays this replaces the regular Dhuhr reminder, so there is time to get to the mosque. 0 turns it off.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 120,
+        "default": 30
+      },
+      {
+        "key": "showImsak",
+        "title": "Remind at imsak",
+        "description": "Useful in Ramadan.",
         "type": "boolean",
         "default": false
       }
     ]
   },
   "capabilities": [
-    { "kind": "workspace:read" },
-    { "kind": "settings:own" },
-    { "kind": "notifications:show" }
+    {
+      "kind": "settings:own"
+    },
+    {
+      "kind": "notifications:show"
+    }
   ]
 }
