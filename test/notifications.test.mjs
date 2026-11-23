@@ -1,7 +1,7 @@
 // node --test test/
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { notificationEvents, agentSummary, prayerReport, activeAgents } from '../worker/main.mjs'
+import { notificationEvents, agentSummary, prayerReport, activeAgents, hijriDate } from '../worker/main.mjs'
 import { prayerTimes } from '../worker/praytimes.mjs'
 
 const cfg = (over = {}) => ({
@@ -16,7 +16,8 @@ const cfg = (over = {}) => ({
   ...over
 })
 const day = (iso) => {
-  const d = new Date(`${iso}T12:00:00+07:00`)
+  const [y, m, dd] = iso.split('-').map(Number)
+  const d = new Date(y, m - 1, dd, 12) // local noon: the calendar day whatever zone runs the test
   return [prayerTimes(d, { lat: -6.1754, lng: 106.8272 }), d]
 }
 const ids = (c, iso) => notificationEvents(c, [day(iso)]).map((e) => e.id.slice(11))
@@ -83,4 +84,12 @@ test('active agents: waiting first, idle ones left out', () => {
     { id: 'c', name: 'c', state: 'permission' },
     { id: 'a', name: 'a', state: 'working' }
   ])
+})
+
+test('Hijri date follows the sighting adjustment', () => {
+  const ramadan1 = new Date(2026, 1, 18, 12) // 1 Ramadan 1447 by Umm al-Qura
+  assert.deepEqual([hijriDate(ramadan1).day, hijriDate(ramadan1).month], [1, 9])
+  // Isbat a day later: 18 Feb is still the last of Sha'ban (29 days in 1447), 19 Feb becomes 1 Ramadan.
+  assert.deepEqual([hijriDate(ramadan1, -1).day, hijriDate(ramadan1, -1).month], [29, 8])
+  assert.deepEqual([hijriDate(new Date(2026, 1, 19, 12), -1).day, hijriDate(new Date(2026, 1, 19, 12), -1).month], [1, 9])
 })

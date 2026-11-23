@@ -1,6 +1,6 @@
 // Waqt worker. Orca keeps it running while the plugin is enabled because the plugin
 // has a status bar item, so it can tick on its own. Everything is computed offline.
-import { prayerTimes, METHODS } from './praytimes.mjs'
+import { prayerTimes, METHODS, qibla } from './praytimes.mjs'
 import { CITIES, resolvePlace, methodFor, placeList } from './cities.mjs'
 import { ZONES } from './zones.mjs'
 
@@ -12,7 +12,7 @@ const WARN_BEFORE_MS = 10 * 60_000 // the status bar turns urgent this close to 
 
 const T = {
   id: {
-    names: { imsak: 'Imsak', fajr: 'Subuh', sunrise: 'Terbit', dhuhr: 'Dzuhur', asr: 'Ashar', maghrib: 'Maghrib', isha: 'Isya' },
+    names: { imsak: 'Imsak', fajr: 'Subuh', sunrise: 'Terbit', dhuha: 'Dhuha', dhuhr: 'Dzuhur', asr: 'Ashar', maghrib: 'Maghrib', isha: 'Isya' },
     friday: 'Jumat',
     min: (n) => `${n} mnt`, hr: (h, m) => (m ? `${h} j ${m} mnt` : `${h} jam`),
     left: (x) => `${x} lagi`,
@@ -30,6 +30,12 @@ const T = {
     agentsWaiting: (n, names) => `${n} workspace menunggu izinmu: ${names}.`,
     agentsWorking: (n) => `Agent masih bekerja di ${n} workspace.`,
     more: (n) => `+${n} lagi`,
+    dhuhaTitle: 'Waktu Dhuha',
+    dhuhaBody: (t) => `Sholat Dhuha bisa dimulai sejak ${t}.`,
+    fastTitle: 'Besok puasa sunnah',
+    fastBody: (why) => `Besok ${why}. Jangan lupa niat dan sahur.`,
+    fast: { monday: 'Senin', thursday: 'Kamis', bidh: (d) => `Ayyamul Bidh (${d})`, arafah: 'hari Arafah', ashura: 'hari Asyura', tasua: "hari Tasu'a" },
+    and: 'dan',
     reportTitle: (p) => `Selama ${p}`,
     reportDone: (n, names) => `${n} workspace selesai: ${names}.`,
     reportWorking: (n) => `${n} workspace masih bekerja.`,
@@ -39,7 +45,7 @@ const T = {
     locale: 'id-ID'
   },
   en: {
-    names: { imsak: 'Imsak', fajr: 'Fajr', sunrise: 'Sunrise', dhuhr: 'Dhuhr', asr: 'Asr', maghrib: 'Maghrib', isha: 'Isha' },
+    names: { imsak: 'Imsak', fajr: 'Fajr', sunrise: 'Sunrise', dhuha: 'Duha', dhuhr: 'Dhuhr', asr: 'Asr', maghrib: 'Maghrib', isha: 'Isha' },
     friday: "Jumu'ah",
     min: (n) => `${n} min`, hr: (h, m) => (m ? `${h} h ${m} min` : `${h} h`),
     left: (x) => `${x} left`,
@@ -57,6 +63,12 @@ const T = {
     agentsWaiting: (n, names) => `${n} ${n === 1 ? 'workspace is' : 'workspaces are'} waiting for your approval: ${names}.`,
     agentsWorking: (n) => `Agents are still working in ${n} ${n === 1 ? 'workspace' : 'workspaces'}.`,
     more: (n) => `${n} more`,
+    dhuhaTitle: 'Duha time',
+    dhuhaBody: (t) => `Duha prayer can be offered from ${t}.`,
+    fastTitle: 'Sunnah fast tomorrow',
+    fastBody: (why) => `Tomorrow is ${why}. Remember your intention and suhoor.`,
+    fast: { monday: 'Monday', thursday: 'Thursday', bidh: (d) => `one of the White Days (${d})`, arafah: 'the Day of Arafah', ashura: 'Ashura', tasua: "Tasu'a" },
+    and: 'and',
     reportTitle: (p) => `While you prayed ${p}`,
     reportDone: (n, names) => `Finished in ${n} ${n === 1 ? 'workspace' : 'workspaces'}: ${names}.`,
     reportWorking: (n) => `Still working in ${n} ${n === 1 ? 'workspace' : 'workspaces'}.`,
@@ -73,12 +85,40 @@ function pickLanguage(setting) {
   return /^(id|ms|in)\b/.test(locale) ? 'id' : 'en'
 }
 const PRAYERS = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha']
-const ORDER = ['imsak', 'fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha']
+const ORDER = ['imsak', 'fajr', 'sunrise', 'dhuha', 'dhuhr', 'asr', 'maghrib', 'isha']
 
 const pad = (n) => String(n).padStart(2, '0')
-const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
+const TIME_FMT = new Map()
+// "05:23" on a clock in `tz` (this computer's zone when tz is not given).
+const hhmm = (d, tz) => {
+  if (!TIME_FMT.has(tz)) TIME_FMT.set(tz, new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }))
+  return TIME_FMT.get(tz).format(d)
+}
+const DAY_FMT = new Map()
+/**
+ * The calendar day it is in `tz` at `instant` (plus `add` days), as local noon on that date.
+ * Everything day-based (prayerTimes, weekday, Hijri date, notification ids) reads a Date's
+ * local fields, so this is how a city in another zone gets its own today.
+ */
+export function cityDay(instant, tz, add = 0) {
+  if (!DAY_FMT.has(tz)) DAY_FMT.set(tz, new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric' }))
+  const p = Object.fromEntries(DAY_FMT.get(tz).formatToParts(instant).map((x) => [x.type, x.value]))
+  return new Date(Number(p.year), Number(p.month) - 1, Number(p.day) + add, 12)
+}
 const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 const label = (t, key, date) => (key === 'dhuhr' && date.getDay() === 5 ? t.friday : t.names[key])
+
+const HIJRI_NUM = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura-nu-latn', { day: 'numeric', month: 'numeric', year: 'numeric' })
+
+/**
+ * Hijri date of a calendar day (Umm al-Qura), shifted by `offset` days to follow a local
+ * moon sighting such as Indonesia's isbat. `at` is the shifted Gregorian day, for formatting.
+ */
+export function hijriDate(date, offset = 0) {
+  const at = new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset, 12)
+  const n = Object.fromEntries(HIJRI_NUM.formatToParts(at).filter((p) => p.type !== 'literal').map((p) => [p.type, Number(p.value)]))
+  return { day: n.day, month: n.month, year: n.year, at }
+}
 
 function untilText(t, ms) {
   const min = Math.max(0, Math.ceil(ms / 60_000))
@@ -133,6 +173,26 @@ export function prayerReport(L, prayerLabel, everWorking, workspaces) {
 }
 
 /**
+ * Why `date` is a recommended (sunnah) fasting day, as labels; [] when it is not, or when
+ * fasting is obligatory (Ramadan) or forbidden (Eid al-Fitr, Eid al-Adha and the tashriq days).
+ */
+export function sunnahFastReasons(L, date, hijriOffset = 0) {
+  const h = hijriDate(date, hijriOffset)
+  const forbidden = (h.month === 10 && h.day === 1) || (h.month === 12 && h.day >= 10 && h.day <= 13)
+  if (h.month === 9 || forbidden) return []
+  const why = []
+  if (h.month === 12 && h.day === 9) why.push(L.fast.arafah)
+  if (h.month === 1 && h.day === 9) why.push(L.fast.tasua)
+  if (h.month === 1 && h.day === 10) why.push(L.fast.ashura)
+  if (h.day >= 13 && h.day <= 15) {
+    why.push(L.fast.bidh(new Intl.DateTimeFormat(`${L.locale}-u-ca-islamic-umalqura`, { day: 'numeric', month: 'long' }).format(h.at)))
+  }
+  if (date.getDay() === 1) why.push(L.fast.monday)
+  if (date.getDay() === 4) why.push(L.fast.thursday)
+  return why
+}
+
+/**
  * Every notification Waqt could send for the given days, as { id, at: Date, title, body }.
  * Ids are stable per day, so the caller can remember which ones it already sent.
  * @param {Array<[Record<string, Date>, Date]>} days  [prayer times, a Date on that day]
@@ -140,6 +200,7 @@ export function prayerReport(L, prayerLabel, everWorking, workspaces) {
 export function notificationEvents(cfg, days) {
   const L = T[cfg.lang]
   const place = cfg.place.name
+  const at = (d) => hhmm(d, cfg.place.tz)
   const events = []
   const add = (id, at, title, body) => events.push({ id, at, title, body })
   for (const [t, d] of days) {
@@ -148,15 +209,27 @@ export function notificationEvents(cfg, days) {
     for (const key of PRAYERS) {
       if (!cfg.prayers[key]) continue
       const name = label(L, key, d)
-      if (cfg.notifyAtTime) add(`${day}-${key}-at`, t[key], L.atTitle(name), L.atBody(name, hhmm(t[key]), place))
+      if (cfg.notifyAtTime) add(`${day}-${key}-at`, t[key], L.atTitle(name), L.atBody(name, at(t[key]), place))
       // On Friday the Jumu'ah reminder below takes the place of the regular Dhuhr one.
       if (cfg.remindBefore > 0 && !(friday && key === 'dhuhr')) {
-        add(`${day}-${key}-pre`, new Date(t[key] - cfg.remindBefore * 60_000), L.preTitle(cfg.remindBefore, name), L.preBody(name, hhmm(t[key]), place))
+        add(`${day}-${key}-pre`, new Date(t[key] - cfg.remindBefore * 60_000), L.preTitle(cfg.remindBefore, name), L.preBody(name, at(t[key]), place))
       }
     }
-    if (friday) add(`${day}-jumuah-pre`, new Date(t.dhuhr - cfg.fridayRemind * 60_000), L.fridayTitle(cfg.fridayRemind), L.fridayBody(hhmm(t.dhuhr), place))
-    if (cfg.remindSunrise > 0) add(`${day}-sunrise-pre`, new Date(t.sunrise - cfg.remindSunrise * 60_000), L.sunriseTitle(cfg.remindSunrise), L.sunriseBody(hhmm(t.sunrise), place))
-    if (cfg.showImsak) add(`${day}-imsak-at`, t.imsak, L.imsakTitle, L.imsakBody(hhmm(t.imsak), hhmm(t.fajr)))
+    if (friday) add(`${day}-jumuah-pre`, new Date(t.dhuhr - cfg.fridayRemind * 60_000), L.fridayTitle(cfg.fridayRemind), L.fridayBody(at(t.dhuhr), place))
+    if (cfg.remindSunrise > 0) add(`${day}-sunrise-pre`, new Date(t.sunrise - cfg.remindSunrise * 60_000), L.sunriseTitle(cfg.remindSunrise), L.sunriseBody(at(t.sunrise), place))
+    const ramadan = hijriDate(d, cfg.hijriOffset).month === 9
+    if (cfg.imsak === 'always' || (cfg.imsak === 'ramadan' && ramadan)) {
+      add(`${day}-imsak-at`, t.imsak, L.imsakTitle, L.imsakBody(at(t.imsak), at(t.fajr)))
+    }
+    if (cfg.remindDhuha) add(`${day}-dhuha-at`, t.dhuha, L.dhuhaTitle, L.dhuhaBody(at(t.dhuha)))
+    // The evening before a sunnah fast, an hour after Isha: time to plan suhoor.
+    if (cfg.sunnahFast) {
+      const why = sunnahFastReasons(L, new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12), cfg.hijriOffset)
+      if (why.length) {
+        const text = why.length > 1 ? `${why.slice(0, -1).join(', ')} ${L.and} ${why.at(-1)}` : why[0]
+        add(`${day}-fast-eve`, new Date(t.isha.getTime() + 60 * 60_000), L.fastTitle, L.fastBody(text))
+      }
+    }
   }
   return events
 }
@@ -180,11 +253,15 @@ export default function activate(orca) {
       // Unset or "auto" follows the country's own authority.
       method: METHODS[s.method] ? s.method : methodFor(p.country),
       asr: s.asr === 'hanafi' ? 'hanafi' : 'shafii',
-      ihtiyat: Number.isInteger(s.ihtiyat) ? s.ihtiyat : 2,
+      // "auto" (or unset) leaves it to the method: 2 for Kemenag, JAKIM and MUIS, 0 elsewhere.
+      ihtiyat: /^\d+$/.test(String(s.ihtiyat)) ? Number(s.ihtiyat) : undefined,
       lang: pickLanguage(s.language),
       remindBefore: Number.isInteger(s.remindBefore) ? s.remindBefore : 10,
       notifyAtTime: s.notifyAtTime !== false,
-      showImsak: s.showImsak === true,
+      // "ramadan" (default): only while fasting; an old showImsak: true meant always.
+      imsak: ['always', 'ramadan', 'off'].includes(s.imsak) ? s.imsak : s.showImsak === true ? 'always' : 'ramadan',
+      remindDhuha: s.remindDhuha === true,
+      sunnahFast: s.sunnahFast === true,
       prayers: {
         fajr: s.notifyFajr !== false,
         dhuhr: s.notifyDhuhr !== false,
@@ -194,7 +271,8 @@ export default function activate(orca) {
       },
       remindSunrise: Number.isInteger(s.remindSunrise) ? s.remindSunrise : 15,
       fridayRemind: Number.isInteger(s.fridayRemind) ? s.fridayRemind : 30,
-      agentSummary: s.agentSummary !== false
+      agentSummary: s.agentSummary !== false,
+      hijriOffset: Number.isInteger(s.hijriOffset) ? Math.max(-2, Math.min(2, s.hijriOffset)) : 0
     }
   }
 
@@ -210,25 +288,31 @@ export default function activate(orca) {
 
   function buildSchedule(cfg, now = new Date()) {
     const t = T[cfg.lang]
-    const tomorrowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 12)
-    const today = dayTimes(cfg, now)
+    const tz = cfg.place.tz
+    const todayDate = cityDay(now, tz) // the place's own today, not necessarily this computer's
+    const tomorrowDate = cityDay(now, tz, 1)
+    const today = dayTimes(cfg, todayDate)
     const tomorrow = dayTimes(cfg, tomorrowDate)
-    const rows = (x, d) => ORDER.map((key) => ({ key, label: label(t, key, d), time: hhmm(x[key]), at: x[key].getTime() }))
+    const rows = (x, d) => ORDER.map((key) => ({ key, label: label(t, key, d), time: hhmm(x[key], tz), at: x[key].getTime() }))
 
-    const upcoming = [...PRAYERS.map((k) => ({ key: k, at: today[k], date: now })), ...PRAYERS.map((k) => ({ key: k, at: tomorrow[k], date: tomorrowDate }))]
+    const upcoming = [...PRAYERS.map((k) => ({ key: k, at: today[k], date: todayDate })), ...PRAYERS.map((k) => ({ key: k, at: tomorrow[k], date: tomorrowDate }))]
     const next = upcoming.find((p) => p.at > now)
     const current = [...PRAYERS].reverse().map((k) => ({ key: k, at: today[k] })).find((p) => p.at <= now) ?? null
     return {
       place: cfg.place.name,
       method: METHODS[cfg.method].name,
       now: now.getTime(),
-      today: rows(today, now),
+      tz,
+      today: rows(today, todayDate),
       tomorrow: rows(tomorrow, tomorrowDate),
-      next: next && { key: next.key, label: label(t, next.key, next.date), time: hhmm(next.at), at: next.at.getTime() },
-      current: current && { key: current.key, label: label(t, current.key, now), at: current.at.getTime() },
+      next: next && { key: next.key, label: label(t, next.key, next.date), time: hhmm(next.at, tz), at: next.at.getTime() },
+      current: current && { key: current.key, label: label(t, current.key, todayDate), at: current.at.getTime() },
       lang: cfg.lang,
+      qibla: Math.round(qibla(cfg.place.lat, cfg.place.lng)),
+      hijri: new Intl.DateTimeFormat(`${t.locale}-u-ca-islamic-umalqura`, { day: 'numeric', month: 'long', year: 'numeric' }).format(hijriDate(todayDate, cfg.hijriOffset).at),
       _today: today,
-      _tomorrow: tomorrow
+      _tomorrow: tomorrow,
+      _days: [[today, todayDate], [tomorrow, tomorrowDate]]
     }
   }
 
@@ -241,7 +325,7 @@ export default function activate(orca) {
   }
 
   async function checkNotifications(cfg, sched, now, workspaces) {
-    const events = notificationEvents(cfg, [[sched._today, new Date(now)], [sched._tomorrow, new Date(now + 86_400_000)]])
+    const events = notificationEvents(cfg, sched._days)
     for (const ev of events) {
       const late = now - ev.at
       if (late < 0 || fired.has(ev.id)) continue
@@ -316,7 +400,7 @@ export default function activate(orca) {
     }
   }
 
-  const publicView = ({ _today, _tomorrow, ...rest }, workspaces) => ({ ...rest, agents: workspaces ? activeAgents(workspaces) : null })
+  const publicView = ({ _today, _tomorrow, _days, ...rest }, workspaces) => ({ ...rest, agents: workspaces ? activeAgents(workspaces) : null })
 
   async function tick() {
     try {
@@ -371,7 +455,7 @@ export default function activate(orca) {
     const t = T[cfg.lang]
     const sched = buildSchedule(cfg)
     const lines = sched.today.map((r) => `${r.label.padEnd(8)} ${r.time}`)
-    const head = t.heading(sched.place, new Date().toLocaleDateString(t.locale, { weekday: 'long', day: 'numeric', month: 'long' }))
+    const head = t.heading(sched.place, new Date().toLocaleDateString(t.locale, { timeZone: sched.tz, weekday: 'long', day: 'numeric', month: 'long' }))
     const next = sched.next ? `\n${t.next(sched.next.label, sched.next.time, untilText(t, sched.next.at - Date.now()))}` : ''
     return `${head}\n\n${lines.join('\n')}${next}`
   })
@@ -380,7 +464,7 @@ export default function activate(orca) {
   readConfig().then((cfg) => {
     const now = Date.now()
     const sched = buildSchedule(cfg)
-    for (const ev of notificationEvents(cfg, [[sched._today, new Date(now)]])) {
+    for (const ev of notificationEvents(cfg, sched._days.slice(0, 1))) {
       if (now - ev.at > LATE_GRACE_MS) fired.add(ev.id)
     }
     tick()

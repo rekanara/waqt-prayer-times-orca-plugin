@@ -160,6 +160,12 @@
         padding: 0 6px; border: var(--border); border-radius: 3px; background: var(--go);
       }
       .agents .b.permission { background: #ff5a5f; }
+      .qibla { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--text); font-weight: 800; }
+      .qibla .arrow {
+        display: inline-grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0;
+        font: 16px/1 var(--display); color: #000; background: var(--sun);
+        border: var(--border); border-radius: 50%;
+      }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -212,7 +218,7 @@
           timeOf: (p) => `Waktu ${p}`, begun: 'Sudah masuk waktu', now: 'Sekarang', method: (m) => `Metode ${m}`,
           change: 'Ganti kota', search: 'Cari kotamu', auto: 'Otomatis (zona waktu)', cancel: 'Batal',
           pickHint: 'Ketik untuk mencari, lalu klik kota atau tekan Enter. Kota yang tidak ada: Settings → Plugins → Waqt → Other.', notFound: 'Tidak ada kota yang cocok.',
-          agentsTitle: 'Agent kamu', permission: 'menunggu izin', working: 'bekerja', open: (n) => `Buka ${n}`, openError: (e) => `Workspace tidak bisa dibuka: ${e}`,
+          qibla: (d) => `Kiblat ${d}° dari utara`, localTime: ' (waktu setempat)', agentsTitle: 'Agent kamu', permission: 'menunggu izin', working: 'bekerja', open: (n) => `Buka ${n}`, openError: (e) => `Workspace tidak bisa dibuka: ${e}`,
           error: (e) => `Jadwal tidak bisa dimuat: ${e}. Pastikan plugin aktif.`
         },
         en: {
@@ -221,7 +227,7 @@
           timeOf: (p) => `${p} time`, begun: 'The prayer time has begun', now: 'Now', method: (m) => `Method: ${m}`,
           change: 'Change city', search: 'Search for your city', auto: 'Automatic (time zone)', cancel: 'Cancel',
           pickHint: 'Type to search, then click a city or press Enter. Not listed? Settings → Plugins → Waqt → Other.', notFound: 'No matching city.',
-          agentsTitle: 'Your agents', permission: 'needs approval', working: 'working', open: (n) => `Open ${n}`, openError: (e) => `Couldn't open the workspace: ${e}`,
+          qibla: (d) => `Qibla ${d}° from north`, localTime: ' (local time there)', agentsTitle: 'Your agents', permission: 'needs approval', working: 'working', open: (n) => `Open ${n}`, openError: (e) => `Couldn't open the workspace: ${e}`,
           error: (e) => `Couldn't load prayer times: ${e}. Check that the plugin is enabled.`
         }
       }
@@ -247,12 +253,6 @@
         return s().left(Math.floor(min / 60), min % 60)
       }
 
-      function hijri(d) {
-        try {
-          return new Intl.DateTimeFormat(`${s().locale}-u-ca-islamic-umalqura`, { day: 'numeric', month: 'long', year: 'numeric' }).format(d)
-        } catch { return '' }
-      }
-
       function render() {
         if (!data) return
         applyStatic()
@@ -260,7 +260,9 @@
         const today = new Date()
         $('place').replaceChildren(
           document.createElement('b'),
-          `, ${today.toLocaleDateString(s().locale, { weekday: 'long', day: 'numeric', month: 'long' })}`
+          `, ${today.toLocaleDateString(s().locale, { timeZone: data.tz, weekday: 'long', day: 'numeric', month: 'long' })}`,
+          // Times are the place's own clock; say so when that is not this computer's.
+          data.tz && data.tz !== Intl.DateTimeFormat().resolvedOptions().timeZone ? s().localTime : ''
         )
         $('place').firstChild.textContent = data.place
 
@@ -339,8 +341,16 @@
           return tr
         }))
 
-        const h = hijri(today)
-        $('foot').textContent = [h, s().method(data.method)].filter(Boolean).join('. ') + '.'
+        // The worker formats the Hijri date, with the user's sighting adjustment applied.
+        $('foot').textContent = [data.hijri, s().method(data.method)].filter(Boolean).join('. ') + '.'
+        // Qibla: an arrow turned to the bearing (north is up), then the number.
+        if (data.qibla != null) {
+          const q = document.createElement('div'); q.className = 'qibla'
+          const arrow = document.createElement('span'); arrow.className = 'arrow'; arrow.textContent = '↑'
+          arrow.style.transform = `rotate(${data.qibla}deg)`; arrow.setAttribute('aria-hidden', 'true')
+          q.append(arrow, s().qibla(data.qibla))
+          $('foot').append(q)
+        }
       }
 
       async function load() {

@@ -40,6 +40,17 @@ export const CITIES = {
 // Curated cities are all Indonesian except these two.
 const CITY_COUNTRY = { 'kuala-lumpur': 'MY', singapura: 'SG' }
 
+// Each curated city's time zone: WIB unless listed.
+const WITA = ['denpasar', 'mataram', 'kupang', 'banjarmasin', 'balikpapan', 'samarinda', 'makassar', 'kendari', 'manado']
+const CITY_TZ = {
+  ...Object.fromEntries(WITA.map((c) => [c, 'Asia/Makassar'])),
+  ambon: 'Asia/Jayapura',
+  jayapura: 'Asia/Jayapura',
+  pontianak: 'Asia/Pontianak',
+  'kuala-lumpur': 'Asia/Kuala_Lumpur',
+  singapura: 'Asia/Singapore'
+}
+
 // Where a curated city is better than the time zone's own principal city.
 export const TZ_CITY = {
   'Asia/Jakarta': 'jakarta',
@@ -75,25 +86,26 @@ export const methodFor = (country) => METHOD_BY_COUNTRY[country] ?? 'mwl'
 /**
  * Where to compute prayer times for, from the plugin settings.
  * city: "auto" (or unset) | a curated key | "zone" (s.zone, picked in the panel) | "custom" (s.latitude/s.longitude)
- * @returns {{ name: string, lat: number, lng: number, country: string|null, auto: boolean }}
+ * tz is the place's own time zone, so times read as they do on a clock there.
+ * @returns {{ name: string, lat: number, lng: number, country: string|null, tz: string, auto: boolean }}
  */
 export function resolvePlace(s = {}, tz = localTimeZone()) {
   const here = TZ_ALIAS[tz] ?? tz
   const hereCountry = ZONES[here]?.[0] ?? null
   const curated = (key, auto) => {
     const [name, lat, lng] = CITIES[key]
-    return { name, lat, lng, country: CITY_COUNTRY[key] ?? 'ID', auto }
+    return { name, lat, lng, country: CITY_COUNTRY[key] ?? 'ID', tz: CITY_TZ[key] ?? 'Asia/Jakarta', auto }
   }
   const zone = (id, auto) => {
     const [country, lat, lng] = ZONES[id]
-    return { name: zoneName(id), lat, lng, country, auto }
+    return { name: zoneName(id), lat, lng, country, tz: id, auto }
   }
 
   if (s.city === 'custom') {
     const lat = Number(s.latitude)
     const lng = Number(s.longitude)
     if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 66 && Math.abs(lng) <= 180) {
-      return { name: `${lat.toFixed(3)}, ${lng.toFixed(3)}`, lat, lng, country: hereCountry, auto: false }
+      return { name: `${lat.toFixed(3)}, ${lng.toFixed(3)}`, lat, lng, country: hereCountry, tz, auto: false }
     }
   }
   if (s.city === 'zone' && ZONES[s.zone]) return zone(s.zone, false)

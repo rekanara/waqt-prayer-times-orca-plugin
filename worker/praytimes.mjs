@@ -13,11 +13,14 @@ const acot = (x) => deg(Math.atan(1 / x))
 const fix = (a, b) => { a = a - b * Math.floor(a / b); return a < 0 ? a + b : a }
 
 // Twilight angles per method. isha may instead be minutes after maghrib.
+// ihtiyat: safety minutes the authority adds to its published times (none for the others).
+const DHUHA_ALTITUDE = 4.5
+
 export const METHODS = {
-  // Kemenag's published tables sit about a minute later at dhuhr and maghrib (checked against Jakarta 2026).
-  kemenag: { name: 'Kemenag (Indonesia)', fajr: 20, isha: 18, dhuhrExtra: 1, maghribExtra: 1 },
-  jakim: { name: 'JAKIM (Malaysia)', fajr: 20, isha: 18 },
-  muis: { name: 'MUIS (Singapore)', fajr: 20, isha: 18 },
+  // Calibrated against Kemenag's 2026 tables (test/kemenag.test.mjs): dhuhr and maghrib sit a minute later, sunrise a minute earlier.
+  kemenag: { name: 'Kemenag (Indonesia)', fajr: 20, isha: 18, ihtiyat: 2, sunriseExtra: -1, dhuhrExtra: 1, maghribExtra: 1 },
+  jakim: { name: 'JAKIM (Malaysia)', fajr: 20, isha: 18, ihtiyat: 2 },
+  muis: { name: 'MUIS (Singapore)', fajr: 20, isha: 18, ihtiyat: 2 },
   mwl: { name: 'Muslim World League', fajr: 18, isha: 17 },
   egypt: { name: 'Egyptian General Authority', fajr: 19.5, isha: 17.5 },
   isna: { name: 'ISNA (North America)', fajr: 15, isha: 15 },
@@ -50,7 +53,7 @@ export function prayerTimes(date, o) {
   const { lat, lng } = o
   const m = METHODS[o.method] ?? METHODS.kemenag
   const shadow = o.asr === 'hanafi' ? 2 : 1
-  const ihtiyat = o.ihtiyat ?? 2
+  const ihtiyat = o.ihtiyat ?? m.ihtiyat ?? 0
   const jDate = julian(date.getFullYear(), date.getMonth() + 1, date.getDate()) - lng / (15 * 24)
 
   const midDay = (t) => fix(12 - sunPosition(jDate + t).eqt, 24)
@@ -99,13 +102,24 @@ export function prayerTimes(date, o) {
     return new Date(round === 'down' ? Math.floor(ms / minute) * minute : Math.ceil(ms / minute) * minute)
   }
   const fajr = at(h.fajr, ihtiyat)
+  // Dhuha begins once the sun has climbed DHUHA_ALTITUDE above the horizon.
+  const dhuha = angleTime(-(o.dhuhaAltitude ?? DHUHA_ALTITUDE), h.sunrise / 24, true)
   return {
     imsak: new Date(fajr.getTime() - (o.imsakMinutes ?? 10) * 60e3),
     fajr,
-    sunrise: at(h.sunrise, -ihtiyat, 'down'),
+    sunrise: at(h.sunrise, -ihtiyat + (m.sunriseExtra ?? 0), 'down'),
+    dhuha: at(dhuha, ihtiyat),
     dhuhr: at(h.dhuhr, ihtiyat + (m.dhuhrExtra ?? 0)),
     asr: at(h.asr, ihtiyat),
     maghrib: at(h.sunset, ihtiyat + (m.maghribExtra ?? 0)),
     isha: at(h.isha, ihtiyat + (m.ishaMinutes ? m.maghribExtra ?? 0 : 0))
   }
+}
+
+const KAABA = { lat: 21.4225, lng: 39.8262 }
+
+/** Qibla: the great-circle bearing to the Kaaba, in degrees clockwise from true north. */
+export function qibla(lat, lng) {
+  const d = KAABA.lng - lng
+  return fix(atan2(sin(d), cos(lat) * tan(KAABA.lat) - sin(lat) * cos(d)), 360)
 }

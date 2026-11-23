@@ -199,13 +199,38 @@
         "default": "shafii"
       },
       {
+        "key": "hijriOffset",
+        "title": "Hijri date adjustment (days)",
+        "description": "Shifts the Umm al-Qura calendar to match your country's moon sighting (in Indonesia, the isbat). Also decides when Ramadan starts for the imsak reminder.",
+        "type": "integer",
+        "minimum": -2,
+        "maximum": 2,
+        "default": 0
+      },
+      {
         "key": "ihtiyat",
         "title": "Safety margin (ihtiyat, minutes)",
-        "description": "Minutes added to each time. Kemenag uses 2.",
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 10,
-        "default": 2
+        "description": "Minutes added to each time for safety. Automatic follows the calculation method.",
+        "type": "string",
+        "default": "auto",
+        "enum": [
+          "auto",
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "enumLabels": [
+          "Automatic (the method's own: 2 for Kemenag, JAKIM and MUIS, 0 otherwise)",
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ]
       },
       {
         "key": "remindBefore",
@@ -279,9 +304,33 @@
         "default": true
       },
       {
-        "key": "showImsak",
-        "title": "Remind at imsak",
-        "description": "Useful in Ramadan.",
+        "key": "imsak",
+        "title": "Imsak reminder",
+        "type": "string",
+        "enum": [
+          "ramadan",
+          "always",
+          "off"
+        ],
+        "enumLabels": [
+          "During Ramadan",
+          "Every day",
+          "Off"
+        ],
+        "default": "ramadan",
+        "description": "Imsak is 10 minutes before Fajr. Ramadan follows the Hijri date, including the adjustment above."
+      },
+      {
+        "key": "remindDhuha",
+        "title": "Remind at Duha time",
+        "description": "When the sun is 4.5° up, as Kemenag reckons it.",
+        "type": "boolean",
+        "default": false
+      },
+      {
+        "key": "sunnahFast",
+        "title": "Remind the evening before a sunnah fast",
+        "description": "An hour after Isha before Mondays, Thursdays, the White Days (13 to 15 of each Hijri month), Arafah, Tasu'a and Ashura. Skipped in Ramadan and on days when fasting is not allowed.",
         "type": "boolean",
         "default": false
       }
