@@ -2,6 +2,8 @@
 
 Islamic prayer times in [Orca](https://orca.dev)'s status bar. Bahasa Indonesia and English.
 
+![The Waqt panel in Orca's sidebar: the next prayer, today's timetable, the Hijri date and the Qibla direction, with the status bar item beside it.](assets/screenshot-panel.png)
+
 - **Status bar**: the next prayer and its time, a countdown in the last hour, and "Asr time" for 15 minutes after a prayer begins. Click it for today's full timetable.
 - **Reminders**: a desktop notification a few minutes before each prayer (10 by default) and when it begins, with each prayer switchable on or off. A reminder before sunrise, when Fajr ends (15 minutes by default). On Fridays an earlier Jumu'ah reminder (30 minutes by default) instead of the regular Dhuhr one. Imsak during Ramadan. Optional: Duha time, and the evening before a sunnah fast (Mondays, Thursdays, the White Days, Arafah, Tasu'a, Ashura; never in Ramadan or on Eid and tashriq days).
 - **Your agents** (Orca workspaces with agents running):
