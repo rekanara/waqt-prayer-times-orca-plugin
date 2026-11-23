@@ -106,11 +106,45 @@
         border-radius: 6px;
         box-shadow: 3px 3px 0 var(--ink);
       }
+      .placebar { display: flex; align-items: center; gap: 8px; }
+      .placebar .place { flex: 1; min-width: 0; }
+      .placebar button, .picker button {
+        font: 700 12px/1.2 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color: #000; background: #fff; border: var(--border); border-radius: 4px;
+        padding: 3px 9px; box-shadow: 2px 2px 0 var(--ink); cursor: pointer; flex-shrink: 0;
+      }
+      .placebar button:active, .picker button:active { transform: translate(2px, 2px); box-shadow: none; }
+      .placebar button:focus-visible, .picker button:focus-visible { outline: 3px solid var(--go); outline-offset: 2px; }
+      .picker {
+        margin-top: 10px; padding: 10px; background: var(--surface);
+        border: var(--border); border-radius: 6px; box-shadow: var(--shadow);
+      }
+      .picker label { display: block; font-weight: 800; margin-bottom: 6px; }
+      .picker input {
+        width: 100%; font: 600 13px/1.3 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        padding: 6px 8px; color: #000; background: #fff; border: var(--border); border-radius: 4px;
+      }
+      .picker input:focus-visible { outline: 3px solid var(--go); outline-offset: 1px; }
+      .picker .row { display: flex; gap: 8px; margin-top: 8px; }
+      .picker .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
       [hidden] { display: none !important; }
     </style>
   </head>
   <body>
-    <div class="place" id="place"></div>
+    <div class="placebar">
+      <div class="place" id="place"></div>
+      <button id="changePlace" aria-controls="picker" aria-expanded="false"></button>
+    </div>
+    <div class="picker" id="picker" hidden>
+      <label for="placeInput" id="placeLabel"></label>
+      <input id="placeInput" list="placeOptions" autocomplete="off" spellcheck="false" />
+      <datalist id="placeOptions"></datalist>
+      <div class="row">
+        <button id="placeAuto"></button>
+        <button id="placeCancel"></button>
+      </div>
+      <div class="hint" id="placeHint"></div>
+    </div>
     <div class="next" id="next" hidden>
       <div class="name" id="nextName"></div>
       <div class="time" id="nextTime"></div>
@@ -139,12 +173,16 @@
           locale: 'id-ID', loading: 'Memuat jadwal…', today: 'Hari ini', tomorrow: 'Besok', days: 'Hari',
           soon: 'kurang dari 1 menit lagi', left: (h, m) => (h ? `${h} jam ` : '') + (m ? `${m} menit ` : '') + 'lagi',
           timeOf: (p) => `Waktu ${p}`, begun: 'Sudah masuk waktu', now: 'Sekarang', method: (m) => `Metode ${m}`,
+          change: 'Ganti kota', search: 'Cari kotamu', auto: 'Otomatis (zona waktu)', cancel: 'Batal',
+          pickHint: 'Ketik lalu pilih dari daftar. Kota yang tidak ada: Settings → Plugins → Waqt → Other.', notFound: 'Kota itu tidak ada di daftar. Pilih salah satu saran.',
           error: (e) => `Jadwal tidak bisa dimuat: ${e}. Pastikan plugin aktif.`
         },
         en: {
           locale: 'en-GB', loading: 'Loading prayer times…', today: 'Today', tomorrow: 'Tomorrow', days: 'Day',
           soon: 'less than a minute left', left: (h, m) => (h ? `${h} h ` : '') + (m ? `${m} min ` : '') + 'left',
           timeOf: (p) => `${p} time`, begun: 'The prayer time has begun', now: 'Now', method: (m) => `Method: ${m}`,
+          change: 'Change city', search: 'Search for your city', auto: 'Automatic (time zone)', cancel: 'Cancel',
+          pickHint: 'Type, then pick from the list. Not listed? Settings → Plugins → Waqt → Other.', notFound: "That city isn't in the list. Pick one of the suggestions.",
           error: (e) => `Couldn't load prayer times: ${e}. Check that the plugin is enabled.`
         }
       }
@@ -156,6 +194,10 @@
         $('dayTabs').setAttribute('aria-label', s().days)
         document.querySelector('[data-day="today"]').textContent = s().today
         document.querySelector('[data-day="tomorrow"]').textContent = s().tomorrow
+        $('changePlace').textContent = s().change
+        $('placeLabel').textContent = s().search
+        $('placeAuto').textContent = s().auto
+        $('placeCancel').textContent = s().cancel
       }
       applyStatic()
       $('place').textContent = s().loading
@@ -253,6 +295,60 @@
           $('error').hidden = false
         }
       }
+
+      // City search. Options are "Name, Country"; the worker only accepts ids it listed.
+      let placeIds = null
+      let placeByName = null // bare name -> id, only when the name is unique
+      async function openPicker() {
+        $('picker').hidden = false
+        $('changePlace').setAttribute('aria-expanded', 'true')
+        $('placeHint').textContent = s().pickHint
+        $('placeInput').value = ''
+        $('placeInput').focus()
+        if (placeIds) return
+        try {
+          const places = await plugin.request('waqt.places', {}, { timeoutMs: 10000 })
+          let region = (cc) => cc
+          try { const dn = new Intl.DisplayNames([s().locale], { type: 'region' }); region = (cc) => dn.of(cc) || cc } catch {}
+          placeIds = new Map()
+          placeByName = new Map()
+          $('placeOptions').replaceChildren(...places.map((p) => {
+            const text = `${p.name}, ${region(p.country)}`
+            placeIds.set(text.toLowerCase(), p.id)
+            const bare = p.name.toLowerCase()
+            placeByName.set(bare, placeByName.has(bare) ? null : p.id)
+            const o = document.createElement('option'); o.value = text
+            return o
+          }))
+        } catch (e) {
+          $('placeHint').textContent = s().error(e.message || e)
+        }
+      }
+      function closePicker() {
+        $('picker').hidden = true
+        $('changePlace').setAttribute('aria-expanded', 'false')
+        $('changePlace').focus()
+      }
+      async function choosePlace(id) {
+        try {
+          data = await plugin.request('waqt.setPlace', { id }, { timeoutMs: 10000 })
+          closePicker()
+          render()
+        } catch (e) {
+          $('placeHint').textContent = s().error(e.message || e)
+        }
+      }
+      $('changePlace').addEventListener('click', () => ($('picker').hidden ? openPicker() : closePicker()))
+      $('placeCancel').addEventListener('click', closePicker)
+      $('placeAuto').addEventListener('click', () => choosePlace('auto'))
+      $('placeInput').addEventListener('change', () => {
+        const v = $('placeInput').value.trim().toLowerCase()
+        if (!v) return
+        const id = placeIds && (placeIds.get(v) || placeByName.get(v))
+        if (id) choosePlace(id)
+        else $('placeHint').textContent = s().notFound
+      })
+      $('picker').addEventListener('keydown', (e) => { if (e.key === 'Escape') closePicker() })
 
       plugin.on('waqt.tick', (next) => { data = next; render() })
       document.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {

@@ -1,7 +1,8 @@
 // Waqt worker. Orca keeps it running while the plugin is enabled because the plugin
 // has a status bar item, so it can tick on its own. Everything is computed offline.
 import { prayerTimes, METHODS } from './praytimes.mjs'
-import { CITIES } from './cities.mjs'
+import { CITIES, resolvePlace, methodFor, placeList } from './cities.mjs'
+import { ZONES } from './zones.mjs'
 
 const TICK_MS = 20_000
 const WINDOW_MIN = 15 // how long "Waktu X" stays in the status bar after a prayer begins
@@ -107,20 +108,12 @@ export default function activate(orca) {
     try {
       s = (await orca.host.call('settings.get', {})).settings ?? {}
     } catch {}
-    const city = CITIES[s.city] ? s.city : s.city === 'custom' ? 'custom' : 'jakarta'
-    let place
-    if (city === 'custom') {
-      const lat = Number(s.latitude)
-      const lng = Number(s.longitude)
-      const ok = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 66 && Math.abs(lng) <= 180
-      place = ok ? { name: `${lat.toFixed(3)}, ${lng.toFixed(3)}`, lat, lng } : { name: 'Jakarta', lat: CITIES.jakarta[1], lng: CITIES.jakarta[2] }
-    } else {
-      const [name, lat, lng] = CITIES[city]
-      place = { name, lat, lng }
-    }
+    const p = resolvePlace(s)
     return {
-      place,
-      method: METHODS[s.method] ? s.method : 'kemenag',
+      // "(auto)" tells the user this is a guess they can correct from the panel.
+      place: { ...p, name: p.auto ? `${p.name} (auto)` : p.name },
+      // Unset or "auto" follows the country's own authority.
+      method: METHODS[s.method] ? s.method : methodFor(p.country),
       asr: s.asr === 'hanafi' ? 'hanafi' : 'shafii',
       ihtiyat: Number.isInteger(s.ihtiyat) ? s.ihtiyat : 2,
       lang: pickLanguage(s.language),
@@ -234,6 +227,22 @@ export default function activate(orca) {
   }
 
   orca.panels.handle('waqt.schedule', async () => publicView(buildSchedule(await readConfig())))
+
+  // The panel's city search. Only ids from placeList() are accepted.
+  orca.panels.handle('waqt.places', async () => placeList())
+  orca.panels.handle('waqt.setPlace', async ({ id } = {}) => {
+    const set = (key, value) => orca.host.call('settings.set', { key, value })
+    if (id === 'auto' || CITIES[id]) {
+      await set('city', id)
+    } else if (typeof id === 'string' && id.startsWith('zone:') && ZONES[id.slice(5)]) {
+      await set('zone', id.slice(5))
+      await set('city', 'zone')
+    } else {
+      throw Object.assign(new Error(`Unknown place "${id}"`), { code: 'invalid_params' })
+    }
+    await tick() // status bar and open panels follow right away
+    return publicView(buildSchedule(await readConfig()))
+  })
 
   orca.commands.register('waqt.today', async () => {
     const cfg = await readConfig()

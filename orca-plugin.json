@@ -56,9 +56,11 @@
       {
         "key": "city",
         "title": "City",
-        "description": "Choose Other to use the latitude and longitude below.",
+        "description": "Automatic guesses from your computer's time zone, anywhere in the world. For more accurate times, search for your city in the Prayer Times panel, choose one here, or choose Other to use the latitude and longitude below.",
         "type": "string",
         "enum": [
+          "auto",
+          "zone",
           "banda-aceh",
           "medan",
           "padang",
@@ -93,6 +95,8 @@
           "custom"
         ],
         "enumLabels": [
+          "Automatic (from this computer's time zone)",
+          "Picked in the Prayer Times panel",
           "Banda Aceh",
           "Medan",
           "Padang",
@@ -126,7 +130,14 @@
           "Singapore",
           "Other (custom coordinates)"
         ],
-        "default": "jakarta"
+        "default": "auto"
+      },
+      {
+        "key": "zone",
+        "title": "City from the panel",
+        "description": "Set by the city search in the Prayer Times panel (a time zone city such as Europe/London). Used when City is \"Picked in the Prayer Times panel\".",
+        "type": "string",
+        "default": ""
       },
       {
         "key": "latitude",
@@ -151,6 +162,7 @@
         "title": "Calculation method",
         "type": "string",
         "enum": [
+          "auto",
           "kemenag",
           "jakim",
           "muis",
@@ -160,6 +172,7 @@
           "makkah"
         ],
         "enumLabels": [
+          "Automatic (your country's authority)",
           "Kemenag (Indonesia)",
           "JAKIM (Malaysia)",
           "MUIS (Singapore)",
@@ -168,7 +181,8 @@
           "ISNA (North America)",
           "Umm al-Qura (Makkah)"
         ],
-        "default": "kemenag"
+        "default": "auto",
+        "description": "Automatic uses Kemenag in Indonesia, JAKIM in Malaysia, MUIS in Singapore, Umm al-Qura in Saudi Arabia, the Egyptian authority in Egypt, ISNA in the US and Canada, and the Muslim World League elsewhere."
       },
       {
         "key": "asr",
