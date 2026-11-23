@@ -6,6 +6,10 @@
   "version": "0.1.0",
   "description": "Islamic prayer times in Orca's status bar: the next prayer, a countdown and desktop reminders. Calculated offline (Kemenag, JAKIM, MUIS, MWL, ISNA, Umm al-Qura and more), no internet needed. Bahasa Indonesia and English.",
   "icon": "assets/icon.png",
+  "cover": {
+    "path": "assets/screenshot-panel.png",
+    "alt": "Waqt panel in Orca's sidebar: next prayer Isha 19:09 on a yellow card, today's timetable, Hijri date and Qibla, plus the status bar item."
+  },
   "screenshots": [
     {
       "path": "assets/screenshot-panel.png",
